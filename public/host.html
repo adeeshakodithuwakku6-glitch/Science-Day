@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#46178f">
+  <title>Science Day Quiz — Host</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { background: #46178f; }
+    .answer:nth-child(1) { background: #e21b3c; }
+    .answer:nth-child(2) { background: #1368ce; }
+    .answer:nth-child(3) { background: #d89e00; }
+    .answer:nth-child(4) { background: #26890c; }
+  </style>
+</head>
+<body class="quiz-stage min-h-screen text-white">
+  <main class="stage-main mx-auto min-h-screen max-w-7xl px-5 py-8 lg:px-10">
+    <header class="mb-8 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <p class="text-sm font-bold uppercase tracking-[.25em] text-purple-200">⚛ &nbsp; School Science Day</p>
+        <h1 class="text-4xl font-black md:text-5xl">Science Quiz</h1>
+      </div>
+      <nav class="flex flex-wrap gap-2" aria-label="Main navigation">
+        <a href="/" class="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Home</a>
+        <a href="/admin.html" class="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Admin panel</a>
+      </nav>
+    </header>
+    <p id="host-error" role="alert" class="mb-5 hidden rounded-lg bg-red-100 p-3 font-bold text-red-900"></p>
+
+    <section id="start-screen" class="host-card mx-auto max-w-xl rounded-3xl bg-white p-8 text-center text-slate-900">
+      <h2 class="text-3xl font-black">Create a live game</h2>
+      <p class="mt-2 text-slate-600">Set up the questions and scoring. Your PIN will appear here for players to join.</p>
+      <form id="create-game-form" class="mt-6 space-y-4 text-left">
+        <label class="block text-sm font-bold">Game name
+          <input id="game-title" maxlength="80" required placeholder="Science Day Final"
+            class="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal">
+        </label>
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="block text-sm font-bold">Starting score
+            <input id="starting-score" type="number" min="0" max="1000000" step="1" value="0" required
+              class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
+          </label>
+          <label class="block text-sm font-bold">n1 · correct
+            <input id="score-n1" type="number" min="0" max="1000000" step="1" value="10" required
+              class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
+          </label>
+          <label class="block text-sm font-bold">n2 · wrong penalty
+            <input id="score-n2" type="number" min="0" max="1000000" step="1" value="5" required
+              class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
+          </label>
+        </div>
+        <fieldset>
+          <div class="flex items-center justify-between gap-3">
+            <legend class="text-sm font-bold">Choose questions</legend>
+            <button id="toggle-questions" type="button" class="text-sm font-bold text-purple-800 hover:underline">Deselect all</button>
+          </div>
+          <div id="game-question-list" class="mt-2 max-h-64 space-y-2 overflow-y-auto rounded-xl border border-slate-200 p-3"></div>
+        </fieldset>
+        <button id="create-game-button" class="w-full rounded-xl bg-purple-700 px-5 py-4 text-lg font-extrabold text-white hover:bg-purple-800">Create game and show PIN</button>
+      </form>
+    </section>
+
+    <section id="lobby-screen" class="hidden grid-cols-1 gap-6 lg:grid-cols-[1fr_1.2fr]">
+      <div class="host-card rounded-3xl bg-white p-7 text-center text-slate-900">
+        <p class="text-sm font-bold uppercase tracking-widest text-purple-700">Scan to join</p>
+        <div id="qr-code" class="mx-auto mt-4 flex min-h-48 w-48 items-center justify-center rounded-xl bg-white p-2"></div>
+        <p id="join-url" class="mt-3 break-all text-sm font-semibold text-slate-600"></p>
+        <p class="mt-5 text-sm font-bold uppercase tracking-widest text-slate-500">Or enter PIN</p>
+        <p id="room-pin" class="mt-1 text-6xl font-black tracking-[.15em] text-purple-800"></p>
+        <button id="start-game" class="mt-6 w-full rounded-xl bg-emerald-600 px-6 py-4 text-xl font-extrabold text-white hover:bg-emerald-700">Start Game</button>
+      </div>
+      <div class="host-glass rounded-3xl p-7">
+        <div class="flex items-end justify-between gap-4">
+          <h2 class="text-3xl font-black">Players</h2>
+          <p id="player-count" class="font-bold text-purple-200">0 joined</p>
+        </div>
+        <div id="player-list" class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3"></div>
+        <p class="mt-5 text-purple-200">Waiting for players to join…</p>
+      </div>
+    </section>
+
+    <section id="question-screen" class="hidden">
+      <div class="host-glass flex flex-wrap items-center justify-between gap-4 rounded-2xl p-4">
+        <p id="question-progress" class="rounded-full bg-white/15 px-5 py-2 text-xl font-bold"></p>
+        <div class="flex items-center gap-3 rounded-full bg-white px-5 py-2 text-xl font-black text-purple-900">
+          <span id="timer">0</span><span class="text-sm">SECONDS</span>
+        </div>
+        <p id="answers-received" class="rounded-full bg-white/15 px-5 py-2 text-xl font-bold">Answers: 0 / 0</p>
+        <button id="pause-game" class="rounded-full bg-amber-300 px-5 py-2 font-bold text-amber-950">Pause</button>
+      </div>
+      <div class="question-stage my-7 rounded-3xl bg-white p-7 text-center text-slate-900 md:p-10">
+        <h2 id="question-text" class="text-3xl font-black md:text-5xl"></h2>
+      </div>
+      <div id="host-options" class="grid grid-cols-1 gap-4 sm:grid-cols-2"></div>
+    </section>
+
+    <section id="review-screen" class="hidden">
+      <div class="review-card mb-6 rounded-3xl bg-white p-7 text-center text-slate-900">
+        <p class="text-sm font-bold uppercase tracking-widest text-purple-700">Correct answer</p>
+        <h2 id="correct-answer" class="mt-2 text-3xl font-black"></h2>
+      </div>
+      <div class="grid gap-6 lg:grid-cols-2">
+        <div class="review-card rounded-3xl bg-white p-6 text-slate-900">
+          <h3 class="text-2xl font-black">Answer distribution</h3>
+          <div id="distribution" class="mt-5 space-y-4"></div>
+        </div>
+        <div class="review-card rounded-3xl bg-white p-6 text-slate-900">
+          <h3 class="text-2xl font-black">Leaderboard</h3>
+          <ol id="leaderboard" class="mt-4 space-y-3"></ol>
+        </div>
+      </div>
+      <button id="next-question" class="mt-6 w-full rounded-xl bg-emerald-600 px-6 py-4 text-xl font-extrabold text-white hover:bg-emerald-700"></button>
+    </section>
+
+    <section id="podium-screen" class="hidden">
+      <div class="text-center">
+        <p class="text-6xl">🏆</p>
+        <h2 class="mt-3 text-5xl font-black">Game over!</h2>
+      </div>
+      <div id="podium" class="mx-auto mt-8 grid max-w-4xl grid-cols-1 items-end gap-4 sm:grid-cols-3"></div>
+      <button id="play-again" class="mx-auto mt-8 block rounded-xl bg-white px-8 py-4 text-xl font-extrabold text-purple-900 hover:bg-purple-100">Play Again</button>
+    </section>
+  </main>
+  <script>
+    const socket = io();
+    const colors = ["#e21b3c", "#1368ce", "#d89e00", "#26890c"];
+    const shapes = ["▲", "◆", "●", "■"];
+    const screens = ["start-screen", "lobby-screen", "question-screen", "review-screen", "podium-screen"];
+    let roomPin = "";
+    let timerInterval;
+    let isPaused = false;
+    let questions = [];
+
+    function showScreen(id) {
+      screens.forEach((screen) => {
+        const element = document.getElementById(screen);
+        element.classList.toggle("hidden", screen !== id);
+        if (screen === id && id === "lobby-screen") element.classList.add("grid");
+        else element.classList.remove("grid");
+      });
+    }
+    function showError(message) {
+      const error = document.getElementById("host-error");
+      error.textContent = message;
+      error.classList.remove("hidden");
+    }
+    function renderLobby(state) {
+      document.getElementById("player-count").textContent = `${state.players.length} joined`;
+      const list = document.getElementById("player-list");
+      list.replaceChildren();
+      state.players.forEach((player) => {
+        const item = document.createElement("div");
+        item.className = "rounded-xl bg-white/15 px-4 py-3 text-lg font-bold";
+        item.textContent = player.nickname;
+        list.append(item);
+      });
+      showScreen("lobby-screen");
+    }
+    function renderLeaderboard(entries) {
+      const list = document.getElementById("leaderboard");
+      list.replaceChildren();
+      entries.forEach((player, index) => {
+        const item = document.createElement("li");
+        item.className = "flex items-center justify-between rounded-xl bg-slate-100 px-4 py-3";
+        const name = document.createElement("span");
+        name.className = "font-bold";
+        name.textContent = `${["🥇", "🥈", "🥉", "4.", "5."][index]} ${player.nickname}`;
+        const score = document.createElement("span");
+        score.className = "font-black text-purple-800";
+        score.textContent = `${player.score} pts`;
+        item.append(name, score);
+        list.append(item);
+      });
+      if (!entries.length) list.textContent = "No players";
+    }
+
+    function setupLobby(pin, title = "Science Quiz") {
+      roomPin = pin;
+      window.history.replaceState(null, "", `/host.html?pin=${encodeURIComponent(pin)}`);
+      document.title = `${title} — Host`;
+      document.getElementById("room-pin").textContent = roomPin;
+      const joinUrl = `${window.location.origin}/?pin=${encodeURIComponent(roomPin)}`;
+      document.getElementById("join-url").textContent = joinUrl;
+      document.getElementById("qr-code").replaceChildren();
+      if (window.QRCode) {
+        new QRCode(document.getElementById("qr-code"), {
+          text: joinUrl,
+          width: 176,
+          height: 176,
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } else {
+        document.getElementById("qr-code").textContent = "QR unavailable — enter the PIN below.";
+      }
+    }
+
+    function watchGame(pin) {
+      socket.emit("host:watch", { pin }, (result) => {
+        if (result?.error) {
+          showError(result.error);
+          showScreen("start-screen");
+        }
+        else setupLobby(result.game.pin, result.game.title);
+      });
+    }
+
+    async function loadQuestions() {
+      const response = await fetch("/api/questions", { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not load quiz questions.");
+      questions = result;
+      const list = document.getElementById("game-question-list");
+      list.replaceChildren();
+      questions.forEach((question, index) => {
+        const label = document.createElement("label");
+        label.className = "flex items-start gap-2 rounded-lg bg-slate-50 p-3 text-sm hover:bg-purple-50";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = "questionId";
+        checkbox.value = question.id;
+        checkbox.checked = true;
+        checkbox.className = "mt-1 accent-purple-700";
+        const text = document.createElement("span");
+        text.textContent = `${index + 1}. ${question.question}`;
+        label.append(checkbox, text);
+        list.append(label);
+      });
+      if (!questions.length) list.textContent = "No questions are available. Ask an admin to add questions first.";
+    }
+
+    document.getElementById("toggle-questions").addEventListener("click", (event) => {
+      const checkboxes = [...document.querySelectorAll('input[name="questionId"]')];
+      const shouldCheck = checkboxes.some((checkbox) => !checkbox.checked);
+      checkboxes.forEach((checkbox) => checkbox.checked = shouldCheck);
+      event.currentTarget.textContent = shouldCheck ? "Deselect all" : "Select all";
+    });
+
+    document.getElementById("create-game-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.getElementById("create-game-button");
+      button.disabled = true;
+      button.textContent = "Creating game…";
+      document.getElementById("host-error").classList.add("hidden");
+      const payload = {
+        title: document.getElementById("game-title").value.trim(),
+        questionIds: [...document.querySelectorAll('input[name="questionId"]:checked')].map((checkbox) => checkbox.value),
+        settings: {
+          startingScore: Number(document.getElementById("starting-score").value),
+          n1: Number(document.getElementById("score-n1").value),
+          n2: Number(document.getElementById("score-n2").value)
+        }
+      };
+      try {
+        const response = await fetch("/api/admin/games", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const game = await response.json();
+        if (!response.ok) throw new Error(game.error || "Could not create the game.");
+        setupLobby(game.pin, game.title);
+        await watchGame(game.pin);
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = "Create game and show PIN";
+      }
+    });
+
+    function connectHost() {
+      roomPin = new URLSearchParams(window.location.search).get("pin") || "";
+      if (!/^\d{6}$/.test(roomPin)) {
+        showScreen("start-screen");
+        loadQuestions().catch(showError);
+        return;
+      }
+      watchGame(roomPin);
+    }
+
+    document.getElementById("start-game").addEventListener("click", () => {
+      socket.emit("host:start", (result) => {
+        if (result?.error) showError(result.error);
+      });
+    });
+    document.getElementById("next-question").addEventListener("click", () => {
+      socket.emit("host:next", (result) => {
+        if (result?.error) showError(result.error);
+      });
+    });
+    document.getElementById("pause-game").addEventListener("click", () => {
+      socket.emit(isPaused ? "host:resume" : "host:pause", (result) => {
+        if (result?.error) showError(result.error);
+      });
+    });
+
+    socket.on("game:lobby", renderLobby);
+    socket.on("game:host-question", (question) => {
+      clearInterval(timerInterval);
+      isPaused = false;
+      document.getElementById("pause-game").textContent = "Pause";
+      document.getElementById("question-progress").textContent = `Question ${question.index} / ${question.total}`;
+      document.getElementById("question-text").textContent = question.question;
+      const options = document.getElementById("host-options");
+      options.replaceChildren();
+      question.options.forEach((option, index) => {
+        const block = document.createElement("div");
+        block.className = "host-answer answer flex items-center gap-5 rounded-2xl px-6 py-5 text-2xl font-extrabold md:text-3xl";
+        const shape = document.createElement("span");
+        shape.className = "text-4xl";
+        shape.textContent = shapes[index];
+        const label = document.createElement("span");
+        label.textContent = option;
+        block.append(shape, label);
+        options.append(block);
+      });
+      const updateTimer = () => {
+        document.getElementById("timer").textContent = Math.max(0, Math.ceil((question.deadline - Date.now()) / 1000));
+      };
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 200);
+      showScreen("question-screen");
+    });
+    socket.on("game:answer-count", ({ answered, total }) => {
+      document.getElementById("answers-received").textContent = `Answers: ${answered} / ${total}`;
+    });
+    socket.on("game:paused", () => {
+      isPaused = true;
+      clearInterval(timerInterval);
+      document.getElementById("timer").textContent = "PAUSED";
+      document.getElementById("pause-game").textContent = "Resume";
+    });
+    socket.on("game:resumed", ({ deadline }) => {
+      isPaused = false;
+      document.getElementById("pause-game").textContent = "Pause";
+      const updateTimer = () => {
+        document.getElementById("timer").textContent = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      };
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 200);
+    });
+    socket.on("game:review", (review) => {
+      clearInterval(timerInterval);
+      document.getElementById("correct-answer").textContent = review.options[review.correctIndex];
+      const distribution = document.getElementById("distribution");
+      distribution.replaceChildren();
+      const totalAnswers = review.distribution.reduce((sum, count) => sum + count, 0);
+      review.distribution.slice(0, 4).forEach((count, index) => {
+        const row = document.createElement("div");
+        const heading = document.createElement("div");
+        heading.className = "mb-1 flex justify-between gap-3 font-bold";
+        const label = document.createElement("span");
+        label.textContent = `${shapes[index]} ${review.options[index]}`;
+        const number = document.createElement("span");
+        number.textContent = String(count);
+        heading.append(label, number);
+        const track = document.createElement("div");
+        track.className = "h-4 overflow-hidden rounded-full bg-slate-200";
+        const bar = document.createElement("div");
+        bar.className = "h-full rounded-full";
+        bar.style.backgroundColor = colors[index];
+        bar.style.width = `${totalAnswers ? (count / totalAnswers) * 100 : 0}%`;
+        track.append(bar);
+        row.append(heading, track);
+        distribution.append(row);
+      });
+      const timeout = document.createElement("p");
+      timeout.className = "mt-3 text-sm text-slate-500";
+      timeout.textContent = `${review.distribution[4]} did not answer`;
+      distribution.append(timeout);
+      renderLeaderboard(review.leaderboard);
+      document.getElementById("next-question").textContent = review.isLastQuestion ? "Show Final Results" : "Next Question";
+      showScreen("review-screen");
+    });
+    socket.on("game:podium", ({ leaderboard }) => {
+      clearInterval(timerInterval);
+      const podium = document.getElementById("podium");
+      podium.replaceChildren();
+      const order = [1, 0, 2];
+      order.forEach((rankIndex) => {
+        const player = leaderboard[rankIndex];
+        const card = document.createElement("div");
+        card.className = `rounded-2xl p-6 text-center ${rankIndex === 0 ? "bg-amber-300 text-amber-950 sm:pb-12" : "bg-white text-slate-900"}`;
+        if (player) {
+          const medal = document.createElement("p");
+          medal.className = "text-5xl";
+          medal.textContent = ["🥇", "🥈", "🥉"][rankIndex];
+          const name = document.createElement("p");
+          name.className = "mt-2 break-words text-2xl font-black";
+          name.textContent = player.nickname;
+          const score = document.createElement("p");
+          score.className = "mt-1 font-bold";
+          score.textContent = `${player.score} points`;
+          card.append(medal, name, score);
+        } else {
+          card.textContent = `${rankIndex + 1}${rankIndex === 0 ? "st" : rankIndex === 1 ? "nd" : "rd"} place`;
+        }
+        podium.append(card);
+      });
+      showScreen("podium-screen");
+    });
+    connectHost();
+  </script>
+</body>
+</html>

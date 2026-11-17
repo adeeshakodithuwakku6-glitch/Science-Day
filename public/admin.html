@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#46178f">
+  <title>Science Day Quiz — Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/auth-storage.js"></script>
+  <style>
+    body { background: #f5f3ff; }
+    input[type="radio"] { accent-color: #6d28d9; }
+  </style>
+</head>
+<body class="admin-page min-h-screen text-slate-900">
+  <header class="admin-header px-5 py-6 text-white">
+    <div class="mx-auto flex max-w-6xl items-center justify-between gap-4">
+      <div>
+        <p class="text-sm font-bold uppercase tracking-[.2em] text-purple-200">⚛ &nbsp; School Science Day</p>
+        <h1 class="text-3xl font-black">Question Admin</h1>
+      </div>
+      <div class="flex gap-2">
+        <a href="/" class="rounded-lg bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Home</a>
+        <a id="admin-name" href="/" class="rounded-lg bg-white px-4 py-2 font-bold text-purple-900 hover:bg-purple-100"></a>
+        <a href="/host.html" class="rounded-lg bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Host screen</a>
+        <button id="logout" class="rounded-lg bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="admin-main mx-auto max-w-6xl px-5 py-8">
+    <section id="dashboard">
+      <section class="admin-toolbar mb-6 rounded-2xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 class="text-2xl font-black">Ongoing games</h2><p class="mt-1 text-slate-600">Games waiting in the lobby or currently being played.</p></div>
+          <button id="refresh-games" class="rounded-lg bg-slate-200 px-4 py-2 font-bold hover:bg-slate-300">Refresh</button>
+        </div>
+        <div id="game-list" class="mt-4 space-y-4"></div>
+      </section>
+
+      <section class="admin-toolbar mb-6 rounded-2xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 class="text-2xl font-black">User accounts</h2><p class="mt-1 text-slate-600">Promote or demote users. At least one administrator must remain.</p></div>
+          <button id="refresh-users" class="rounded-lg bg-slate-200 px-4 py-2 font-bold hover:bg-slate-300">Refresh</button>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full min-w-[35rem] text-left text-sm">
+            <thead><tr class="border-b border-slate-200 text-slate-500"><th class="p-3">Name</th><th class="p-3">Email</th><th class="p-3">Role</th><th class="p-3">Action</th></tr></thead>
+            <tbody id="user-list"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="admin-toolbar mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl p-5">
+        <div>
+          <h2 class="text-2xl font-black">Quiz questions</h2>
+          <p id="question-count" class="mt-1 text-slate-600"></p>
+        </div>
+        <div class="flex gap-2">
+          <button id="add-question" class="rounded-lg bg-purple-700 px-4 py-3 font-bold text-white hover:bg-purple-800">+ Add question</button>
+          <button id="save-all" class="rounded-lg bg-emerald-700 px-4 py-3 font-bold text-white hover:bg-emerald-800">Save All Changes</button>
+        </div>
+      </div>
+      <div id="question-list" class="space-y-5"></div>
+    </section>
+    <p id="notice" role="status" class="fixed bottom-5 left-1/2 z-10 hidden max-w-[90vw] -translate-x-1/2 rounded-xl px-5 py-3 font-bold text-white shadow-lg"></p>
+  </main>
+
+  <template id="question-template">
+    <article class="question-card rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h3 class="question-heading text-lg font-black"></h3>
+        <div class="flex shrink-0 gap-1">
+          <button type="button" data-action="up" aria-label="Move question up" class="rounded-lg bg-slate-100 px-3 py-2 font-bold hover:bg-slate-200">↑</button>
+          <button type="button" data-action="down" aria-label="Move question down" class="rounded-lg bg-slate-100 px-3 py-2 font-bold hover:bg-slate-200">↓</button>
+          <button type="button" data-action="delete" class="rounded-lg bg-red-100 px-3 py-2 font-bold text-red-800 hover:bg-red-200">Delete</button>
+        </div>
+      </div>
+      <label class="block text-sm font-bold">Question
+        <input data-field="question" maxlength="500" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal focus:border-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-100">
+      </label>
+      <div class="options mt-4 grid gap-3 sm:grid-cols-2"></div>
+      <label class="mt-4 inline-flex items-center gap-2 text-sm font-bold">Time limit
+        <select data-field="timeLimit" class="rounded-lg border border-slate-300 px-3 py-2">
+          <option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option>
+          <option value="20">20 seconds</option><option value="25">25 seconds</option><option value="30">30 seconds</option>
+          <option value="45">45 seconds</option><option value="60">60 seconds</option><option value="90">90 seconds</option>
+          <option value="120">120 seconds</option>
+        </select>
+      </label>
+    </article>
+  </template>
+
+  <script>
+    let questions = [];
+    const list = document.getElementById("question-list");
+
+    function showNotice(message, isError = false) {
+      const notice = document.getElementById("notice");
+      notice.textContent = message;
+      notice.className = `fixed bottom-5 left-1/2 z-10 max-w-[90vw] -translate-x-1/2 rounded-xl px-5 py-3 font-bold text-white shadow-lg ${isError ? "bg-red-700" : "bg-emerald-700"}`;
+      setTimeout(() => notice.classList.add("hidden"), 3500);
+    }
+    async function api(url, options = {}) {
+      const response = await fetch(url, {
+        ...options,
+        headers: { "Content-Type": "application/json", ...options.headers }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401 || response.status === 403) {
+        window.location.replace("/");
+        throw new Error("Please sign in with an administrator account.");
+      }
+      if (!response.ok) throw new Error(data.error || "Request failed.");
+      return data;
+    }
+    function newQuestion() {
+      return { id: crypto.randomUUID(), question: "", options: ["", "", "", ""], correctIndex: 0, timeLimit: 20 };
+    }
+    function readForm() {
+      questions = [...list.querySelectorAll(".question-card")].map((card) => ({
+        id: card.dataset.id,
+        question: card.querySelector('[data-field="question"]').value.trim(),
+        options: [...card.querySelectorAll('[data-field="option"]')].map((input) => input.value.trim()),
+        correctIndex: Number(card.querySelector('input[type="radio"]:checked')?.value),
+        timeLimit: Number(card.querySelector('[data-field="timeLimit"]').value)
+      }));
+    }
+    function renderQuestions() {
+      list.replaceChildren();
+      questions.forEach((question, questionIndex) => {
+        const card = document.getElementById("question-template").content.firstElementChild.cloneNode(true);
+        card.dataset.id = question.id;
+        card.querySelector(".question-heading").textContent = `Question ${questionIndex + 1}`;
+        const prompt = card.querySelector('[data-field="question"]');
+        prompt.value = question.question;
+        prompt.placeholder = "Enter the question";
+        card.querySelector('[data-field="timeLimit"]').value = String(question.timeLimit);
+        const options = card.querySelector(".options");
+        question.options.forEach((option, optionIndex) => {
+          const label = document.createElement("label");
+          label.className = "block rounded-lg border border-slate-200 p-3";
+          const radio = document.createElement("input");
+          radio.type = "radio";
+          radio.name = `correct-${question.id}`;
+          radio.value = String(optionIndex);
+          radio.checked = question.correctIndex === optionIndex;
+          radio.setAttribute("aria-label", `Mark option ${optionIndex + 1} correct`);
+          const input = document.createElement("input");
+          input.type = "text";
+          input.maxLength = 200;
+          input.required = true;
+          input.dataset.field = "option";
+          input.value = option;
+          input.placeholder = `Option ${optionIndex + 1}`;
+          input.className = "ml-2 w-[calc(100%-2rem)] rounded-md border border-slate-300 px-2 py-2 font-normal focus:border-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-100";
+          label.append(radio, input);
+          options.append(label);
+        });
+        card.addEventListener("click", (event) => {
+          const action = event.target.closest("[data-action]")?.dataset.action;
+          if (!action) return;
+          readForm();
+          if (action === "delete") questions.splice(questionIndex, 1);
+          if (action === "up" && questionIndex > 0) [questions[questionIndex - 1], questions[questionIndex]] = [questions[questionIndex], questions[questionIndex - 1]];
+          if (action === "down" && questionIndex < questions.length - 1) [questions[questionIndex + 1], questions[questionIndex]] = [questions[questionIndex], questions[questionIndex + 1]];
+          renderQuestions();
+        });
+        list.append(card);
+      });
+      document.getElementById("question-count").textContent = `${questions.length} question${questions.length === 1 ? "" : "s"} — click a field to edit`;
+    }
+
+    function renderUsers(users) {
+      const body = document.getElementById("user-list");
+      body.replaceChildren();
+      users.forEach((user) => {
+        const row = document.createElement("tr");
+        row.className = "border-b border-slate-100";
+        for (const value of [user.name, user.email, user.role]) {
+          const cell = document.createElement("td");
+          cell.className = "p-3";
+          cell.textContent = value;
+          row.append(cell);
+        }
+        const actionCell = document.createElement("td");
+        actionCell.className = "p-3";
+        if (user.id === currentUserId) {
+          actionCell.textContent = "You";
+        } else {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "rounded-lg bg-purple-100 px-3 py-2 font-bold text-purple-900 hover:bg-purple-200";
+          button.textContent = user.role === "admin" ? "Make player" : "Make admin";
+          button.addEventListener("click", async () => {
+            try {
+              await api(`/api/admin/users/${encodeURIComponent(user.id)}/role`, {
+                method: "PATCH",
+                body: JSON.stringify({ role: user.role === "admin" ? "user" : "admin" })
+              });
+              await loadUsers();
+              showNotice(`${user.name} is now ${user.role === "admin" ? "a player" : "an administrator"}.`);
+            } catch (error) {
+              showNotice(error.message, true);
+            }
+          });
+          actionCell.append(button);
+        }
+        row.append(actionCell);
+        body.append(row);
+      });
+    }
+
+    let currentUserId = "";
+    async function loadUsers() {
+      renderUsers(await api("/api/admin/users"));
+    }
+
+    function renderGames(games) {
+      const container = document.getElementById("game-list");
+      container.replaceChildren();
+      games.forEach((game) => {
+        const card = document.createElement("article");
+        card.className = "rounded-xl bg-white p-4 ring-1 ring-slate-200";
+        const heading = document.createElement("div");
+        heading.className = "flex flex-wrap items-start justify-between gap-3";
+        const title = document.createElement("div");
+        const name = document.createElement("h3");
+        name.className = "text-lg font-black";
+        name.textContent = game.title;
+        const meta = document.createElement("p");
+        meta.className = "text-sm text-slate-600";
+        meta.textContent = `PIN ${game.pin} · ${game.players.length} players · ${game.status} · ${game.questionCount} questions`;
+        title.append(name, meta);
+        const actions = document.createElement("div");
+        actions.className = "flex flex-wrap gap-2";
+        if (game.live) {
+          const host = document.createElement("a");
+          host.href = `/host.html?pin=${encodeURIComponent(game.pin)}`;
+          host.className = "rounded-lg bg-purple-100 px-3 py-2 text-sm font-bold text-purple-900";
+          host.textContent = "Join live on host panel";
+          actions.append(host);
+        }
+        const availableActions = {
+          lobby: ["start", "Start"],
+          question: ["pause", "Pause"],
+          paused: ["resume", "Resume"],
+          review: ["next", game.currentQuestion >= game.questionCount ? "Show results" : "Next question"]
+        };
+        const action = availableActions[game.status];
+        if (action) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800";
+          button.textContent = action[1];
+          button.addEventListener("click", async () => {
+            try {
+              await api(`/api/admin/games/${encodeURIComponent(game.pin)}/${action[0]}`, { method: "POST" });
+              await loadGames();
+              showNotice("Game updated.");
+            } catch (error) {
+              showNotice(error.message, true);
+            }
+          });
+          actions.append(button);
+        }
+        heading.append(title, actions);
+        card.append(heading);
+        if (game.leaderboard?.length) {
+          const ranks = document.createElement("ol");
+          ranks.className = "mt-3 grid gap-2 sm:grid-cols-2";
+          game.leaderboard.forEach((player) => {
+            const entry = document.createElement("li");
+            entry.className = "flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm";
+            const playerName = document.createElement("span");
+            playerName.textContent = `${player.rank}. ${player.nickname}`;
+            const score = document.createElement("strong");
+            score.textContent = `${player.score} pts`;
+            entry.append(playerName, score);
+            ranks.append(entry);
+          });
+          card.append(ranks);
+        }
+        container.append(card);
+      });
+      if (!games.length) container.textContent = "There are no ongoing games. Create a game from the host panel.";
+    }
+
+    async function loadGames() {
+      renderGames(await api("/api/admin/games"));
+    }
+
+    document.getElementById("logout").addEventListener("click", async () => {
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+        quizAuthStorage.clearUser();
+        window.location.replace("/login.html");
+      } catch {
+        showNotice("Could not sign out. Please try again.", true);
+      }
+    });
+    document.getElementById("add-question").addEventListener("click", () => {
+      readForm();
+      questions.push(newQuestion());
+      renderQuestions();
+      list.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    document.getElementById("save-all").addEventListener("click", async () => {
+      readForm();
+      try {
+        const result = await api("/api/questions", { method: "POST", body: JSON.stringify(questions) });
+        showNotice(`Saved ${result.saved} question${result.saved === 1 ? "" : "s"}.`);
+      } catch (error) {
+        showNotice(error.message, true);
+      }
+    });
+    document.getElementById("refresh-games").addEventListener("click", () => loadGames().catch((error) => showNotice(error.message, true)));
+    document.getElementById("refresh-users").addEventListener("click", () => loadUsers().catch((error) => showNotice(error.message, true)));
+    api("/api/auth/me")
+      .then(({ user }) => {
+        if (user.role !== "admin") {
+          quizAuthStorage.saveUser(user);
+          window.location.replace("/play.html");
+          return;
+        }
+        quizAuthStorage.saveUser(user);
+        currentUserId = user.id;
+        const name = document.getElementById("admin-name");
+        name.textContent = user.name.trim().split(/\s+/)[0];
+        name.href = "/";
+        return api("/api/questions").then((savedQuestions) => {
+          questions = savedQuestions;
+          renderQuestions();
+          return Promise.all([loadUsers(), loadGames()]);
+        });
+      })
+      .catch((error) => {
+        if (error.message !== "Please sign in with an administrator account.") showNotice(error.message, true);
+      });
+  </script>
+</body>
+</html>

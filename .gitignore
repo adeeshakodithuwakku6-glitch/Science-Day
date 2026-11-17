@@ -1,0 +1,10 @@
+node_modules/
+.env
+users.json
+users.json.*.tmp
+games.json
+games.json.*.tmp
+sessions.json
+sessions.json.*.tmp
+questions.json.*.tmp
+npm-debug.log*

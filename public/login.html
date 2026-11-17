@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#46178f">
+  <title>Sign in — Science Day Quiz</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/auth-storage.js"></script>
+</head>
+<body class="auth-page flex min-h-screen items-center justify-center px-5 py-8 text-white">
+  <main class="auth-shell w-full max-w-md">
+    <header class="mb-7 text-center">
+      <span class="auth-mark" aria-hidden="true">⚛</span>
+      <a href="/" class="text-sm font-bold uppercase tracking-[.25em] text-purple-200 hover:text-white">School Science Day</a>
+      <h1 class="mt-2 text-4xl font-black">Welcome back</h1>
+      <p class="mt-2 text-purple-100">Sign in to join the quiz or manage it.</p>
+    </header>
+    <section class="auth-card rounded-3xl p-7 text-slate-900 sm:p-8">
+      <h2 class="text-2xl font-black">Sign in</h2>
+      <form id="login-form" class="mt-5 space-y-4">
+        <label class="block text-sm font-bold" for="email">Email
+          <input id="email" type="email" maxlength="254" autocomplete="email" required
+            class="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:border-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-200">
+        </label>
+        <label class="block text-sm font-bold" for="password">Password
+          <input id="password" type="password" maxlength="128" autocomplete="current-password" required
+            class="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:border-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-200">
+        </label>
+        <button id="submit-button" class="w-full rounded-xl bg-purple-700 px-5 py-4 text-lg font-extrabold text-white hover:bg-purple-800">Sign in</button>
+      </form>
+      <p class="mt-5 text-center text-slate-600">Don't have an account?
+        <a class="font-bold text-purple-800 hover:underline" href="/register.html">Create one</a>
+      </p>
+    </section>
+    <p id="message" role="alert" class="mt-4 hidden rounded-xl bg-red-100 px-4 py-3 text-center font-bold text-red-900"></p>
+  </main>
+  <script>
+    const form = document.getElementById("login-form");
+    const button = document.getElementById("submit-button");
+    const message = document.getElementById("message");
+
+    function redirectForRole(user) {
+      if (user.role === "admin") {
+        window.location.replace("/admin.html");
+        return;
+      }
+      const pin = localStorage.getItem("scienceQuizPin");
+      window.location.replace(/^\d{6}$/.test(pin || "") ? `/play.html?pin=${encodeURIComponent(pin)}` : "/");
+    }
+
+    fetch("/api/auth/me")
+      .then(async (response) => {
+        if (response.status === 401) return;
+        if (!response.ok) throw new Error("Could not check your sign-in. Please refresh the page.");
+        const { user } = await response.json();
+        quizAuthStorage.saveUser(user);
+        redirectForRole(user);
+      })
+      .catch((error) => {
+        message.textContent = error.message;
+        message.classList.remove("hidden");
+      });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      message.classList.add("hidden");
+      button.disabled = true;
+      button.textContent = "Signing in…";
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Sign in failed.");
+        quizAuthStorage.saveUser(result.user);
+        redirectForRole(result.user);
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.remove("hidden");
+      } finally {
+        button.disabled = false;
+        button.textContent = "Sign in";
+      }
+    });
+  </script>
+</body>
+</html>

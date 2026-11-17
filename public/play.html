@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#46178f">
+  <title>Science Day Quiz — Join Game</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/auth-storage.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { background: #46178f; }
+    .answer { min-height: 7rem; }
+    .answer:disabled { opacity: .65; }
+  </style>
+</head>
+<body class="quiz-stage min-h-screen text-white">
+  <main id="player-app" class="stage-main mx-auto hidden min-h-screen w-full max-w-xl flex-col justify-center px-5 py-8">
+    <header class="mb-7 text-center">
+      <a href="/" class="inline-flex rounded-lg bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">← Home</a>
+      <p class="text-sm font-bold uppercase tracking-[.25em] text-purple-200">School Science Day</p>
+      <h1 class="mt-2 text-4xl font-black">Quiz time!</h1>
+    </header>
+
+    <section id="join-screen" class="player-card rounded-3xl bg-white p-6 text-slate-900 sm:p-8">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <p class="font-bold">Signed in as <span id="signed-in-name" class="text-purple-800"></span></p>
+        <button id="logout" type="button" class="rounded-lg bg-slate-100 px-3 py-2 text-sm font-bold hover:bg-slate-200">Log out</button>
+      </div>
+      <form id="join-form" class="space-y-4">
+        <label class="block text-sm font-bold" for="pin">Game PIN
+          <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required
+            class="mt-1 w-full rounded-xl border border-slate-300 px-4 py-4 text-center text-3xl font-black tracking-[.3em] focus:border-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-200">
+        </label>
+        <label class="block text-sm font-bold" for="nickname">Nickname
+          <input id="nickname" type="text" maxlength="30" autocomplete="nickname" required
+            placeholder="Choose a name to show on the game screen"
+            class="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-lg font-normal focus:border-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-200">
+        </label>
+        <button class="w-full rounded-xl bg-purple-700 px-5 py-4 text-lg font-extrabold text-white hover:bg-purple-800">Join game</button>
+      </form>
+    </section>
+
+    <section id="waiting-screen" class="player-card hidden rounded-3xl bg-white p-8 text-center text-slate-900">
+      <div class="text-6xl">🎉</div>
+      <h2 class="mt-4 text-3xl font-black">You're in!</h2>
+      <p class="mt-2 text-lg">See your nickname on screen?</p>
+      <p id="waiting-name" class="mt-5 rounded-xl bg-purple-100 px-4 py-3 text-xl font-black text-purple-900"></p>
+    </section>
+
+    <section id="question-screen" class="hidden">
+      <div class="mb-5 flex items-center justify-between rounded-2xl bg-white px-5 py-3 text-slate-900">
+        <p id="question-progress" class="font-bold"></p>
+        <p id="timer" class="text-2xl font-black text-purple-800"></p>
+      </div>
+      <p id="paused-banner" class="mb-4 hidden rounded-xl bg-amber-300 px-4 py-3 text-center font-black text-amber-950">The game is paused</p>
+      <h2 id="question-text" class="mb-6 text-center text-2xl font-extrabold"></h2>
+      <div id="answer-grid" class="grid grid-cols-2 gap-3"></div>
+    </section>
+
+    <section id="feedback-screen" class="player-card hidden rounded-3xl bg-white p-8 text-center text-slate-900">
+      <div id="feedback-icon" class="text-6xl"></div>
+      <h2 id="feedback-title" class="mt-3 text-3xl font-black"></h2>
+      <p id="feedback-points" class="mt-2 text-xl font-bold"></p>
+      <p id="feedback-score" class="mt-4 text-slate-600"></p>
+      <p id="feedback-rank" class="mt-1 font-bold text-purple-800"></p>
+      <p class="mt-6 text-slate-500">Look at the big screen for the next question.</p>
+    </section>
+
+    <section id="final-screen" class="player-card hidden rounded-3xl bg-white p-7 text-slate-900">
+      <h2 class="text-center text-3xl font-black">Final rankings</h2>
+      <ol id="final-rankings" class="mt-5 space-y-2"></ol>
+      <a href="/" class="mt-6 block rounded-xl bg-purple-700 px-5 py-4 text-center font-extrabold text-white">Back to home</a>
+    </section>
+
+    <p id="error-message" role="alert" class="mt-4 hidden rounded-xl bg-red-100 px-4 py-3 text-center font-bold text-red-900"></p>
+  </main>
+  <script>
+    const socket = io({ autoConnect: false });
+    const screens = ["join-screen", "waiting-screen", "question-screen", "feedback-screen", "final-screen"];
+    const colors = ["bg-rose-600 hover:bg-rose-700", "bg-sky-600 hover:bg-sky-700", "bg-amber-500 hover:bg-amber-600", "bg-emerald-600 hover:bg-emerald-700"];
+    const shapes = ["▲", "◆", "●", "■"];
+    let roomPin = "";
+    let timerInterval;
+    let hasAnswered = false;
+    function showScreen(id) {
+      screens.forEach((screen) => document.getElementById(screen).classList.toggle("hidden", screen !== id));
+    }
+    function showError(message) {
+      const error = document.getElementById("error-message");
+      error.textContent = message;
+      error.classList.remove("hidden");
+    }
+
+    function enterApp(user) {
+      if (user.role === "admin") {
+        window.location.replace("/admin.html");
+        return;
+      }
+      document.getElementById("signed-in-name").textContent = user.name;
+      const nickname = document.getElementById("nickname");
+      nickname.value = quizAuthStorage.getNickname() || user.name;
+      document.getElementById("player-app").classList.remove("hidden");
+      document.getElementById("player-app").classList.add("flex");
+      socket.connect();
+    }
+
+    document.getElementById("logout").addEventListener("click", async () => {
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+        quizAuthStorage.clearUser();
+        socket.disconnect();
+        window.location.replace("/login.html");
+      } catch (error) {
+        showError("Could not sign out. Please try again.");
+      }
+    });
+
+    document.getElementById("join-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      document.getElementById("error-message").classList.add("hidden");
+      const pin = document.getElementById("pin").value.trim();
+      const nickname = document.getElementById("nickname").value.trim().replace(/\s+/g, " ");
+      socket.emit("player:join", { pin, nickname }, (result) => {
+        if (result?.error) return showError(result.error);
+        roomPin = result.pin;
+        quizAuthStorage.saveNickname(result.nickname);
+        quizAuthStorage.clearPin();
+        document.getElementById("waiting-name").textContent = result.nickname;
+        showScreen("waiting-screen");
+      });
+    });
+
+    socket.on("game:question", (question) => {
+      clearInterval(timerInterval);
+      hasAnswered = false;
+      document.getElementById("paused-banner").classList.add("hidden");
+      document.getElementById("question-progress").textContent = `Question ${question.index} of ${question.total}`;
+      document.getElementById("question-text").textContent = question.question;
+      const grid = document.getElementById("answer-grid");
+      grid.replaceChildren();
+      question.options.forEach((option, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `answer flex flex-col items-center justify-center rounded-2xl px-3 py-4 text-center text-white shadow-lg ${colors[index]}`;
+        const shape = document.createElement("span");
+        shape.className = "text-3xl";
+        shape.textContent = shapes[index];
+        const label = document.createElement("span");
+        label.className = "mt-2 font-bold";
+        label.textContent = option;
+        button.append(shape, label);
+        button.addEventListener("click", () => {
+          hasAnswered = true;
+          [...grid.children].forEach((answer) => answer.disabled = true);
+          socket.emit("player:answer", { pin: roomPin, answerIndex: index }, (result) => {
+            if (result?.error) showError(result.error);
+          });
+        });
+        grid.append(button);
+      });
+      showScreen("question-screen");
+      const updateTimer = () => {
+        const seconds = Math.max(0, Math.ceil((question.deadline - Date.now()) / 1000));
+        document.getElementById("timer").textContent = `${seconds}s`;
+        if (seconds === 0) clearInterval(timerInterval);
+      };
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 200);
+    });
+
+    socket.on("game:paused", () => {
+      clearInterval(timerInterval);
+      document.getElementById("timer").textContent = "PAUSED";
+      document.getElementById("paused-banner").classList.remove("hidden");
+      document.querySelectorAll("#answer-grid button").forEach((button) => button.disabled = true);
+    });
+
+    socket.on("game:resumed", ({ deadline }) => {
+      document.getElementById("paused-banner").classList.add("hidden");
+      if (!hasAnswered) document.querySelectorAll("#answer-grid button").forEach((button) => button.disabled = false);
+      const updateTimer = () => {
+        const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        document.getElementById("timer").textContent = `${seconds}s`;
+        if (seconds === 0) clearInterval(timerInterval);
+      };
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 200);
+    });
+
+    socket.on("game:feedback", (result) => {
+      clearInterval(timerInterval);
+      const unanswered = result.answered === false;
+      document.getElementById("feedback-icon").textContent = unanswered ? "⌛" : result.correct ? "✅" : "❌";
+      document.getElementById("feedback-title").textContent = unanswered ? "Time's up!" : result.correct ? "Correct!" : "Not quite!";
+      document.getElementById("feedback-points").textContent = unanswered
+        ? "No answer — no points lost"
+        : result.points > 0 ? `+${result.points} points` : result.points < 0 ? `${result.points} points` : "0 points";
+      document.getElementById("feedback-score").textContent = `Total score: ${result.score}`;
+      document.getElementById("feedback-rank").textContent = `Current rank: ${result.rank}`;
+      showScreen("feedback-screen");
+    });
+
+    socket.on("game:podium", ({ leaderboard }) => {
+      clearInterval(timerInterval);
+      const list = document.getElementById("final-rankings");
+      list.replaceChildren();
+      leaderboard.forEach((player) => {
+        const item = document.createElement("li");
+        item.className = "flex justify-between rounded-xl bg-slate-100 px-4 py-3";
+        const name = document.createElement("span");
+        name.className = "font-bold";
+        name.textContent = `${player.rank}. ${player.nickname}`;
+        const score = document.createElement("strong");
+        score.textContent = `${player.score} pts`;
+        item.append(name, score);
+        list.append(item);
+      });
+      if (!leaderboard.length) list.textContent = "No players";
+      showScreen("final-screen");
+    });
+
+    socket.on("connect_error", (error) => {
+      if (error.message === "Authentication required.") {
+        quizAuthStorage.clearUser();
+        const pin = roomPin || new URLSearchParams(window.location.search).get("pin") || quizAuthStorage.getPin();
+        if (pin) quizAuthStorage.savePin(pin);
+        window.location.replace("/login.html");
+        return;
+      }
+      showError("Could not connect to the game. Please check your connection and try again.");
+    });
+
+    fetch("/api/auth/me")
+      .then(async (response) => {
+        if (response.status === 401) {
+          const pin = new URLSearchParams(window.location.search).get("pin");
+          if (/^\d{6}$/.test(pin || "")) quizAuthStorage.savePin(pin);
+          quizAuthStorage.clearUser();
+          window.location.replace("/login.html");
+          return;
+        }
+        if (!response.ok) throw new Error("Could not check your sign-in. Please refresh the page.");
+        const result = await response.json();
+        quizAuthStorage.saveUser(result.user);
+        enterApp(result.user);
+        const pin = new URLSearchParams(window.location.search).get("pin") || quizAuthStorage.getPin();
+        if (/^\d{6}$/.test(pin)) document.getElementById("pin").value = pin;
+      })
+      .catch((error) => showError(error.message));
+  </script>
+</body>
+</html>
