@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const express = require("express");
 const http = require("node:http");
@@ -15,6 +16,20 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
 const SESSION_COOKIE = "science_quiz_session";
+
+function getLanAddresses() {
+  return [...new Set(
+    Object.values(os.networkInterfaces())
+      .flat()
+      .filter((address) => address && address.family === "IPv4" && !address.internal)
+      .map((address) => address.address)
+  )];
+}
+
+function getLanOrigin() {
+  const address = getLanAddresses()[0];
+  return address ? `http://${address}:${PORT}` : null;
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -528,6 +543,25 @@ app.get("/api/admin/games", requireAdmin, (req, res) => {
   );
 });
 
+app.delete("/api/admin/games/:pin", requireAdmin, async (req, res, next) => {
+  const room = rooms.get(req.params.pin);
+  if (!room) return res.status(404).json({ error: "Game not found." });
+
+  clearRoomTimer(room);
+  clearTimeout(room.cleanupTimer);
+  io.to(room.pin).emit("game:deleted");
+  io.in(room.pin).socketsLeave(room.pin);
+  rooms.delete(room.pin);
+  gameHistory = gameHistory.filter((game) => game.id !== room.id);
+
+  try {
+    await persistGameHistory();
+    res.json({ deleted: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/admin/games", requireAdmin, async (req, res, next) => {
   const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
   const questionIds = req.body?.questionIds;
@@ -889,7 +923,7 @@ io.on("connection", (socket) => {
     room.hostSocketId = socket.id;
     socket.data.hostPin = room.pin;
     socket.join(room.pin);
-    ack({ game: gameSummary(room) });
+    ack({ game: gameSummary(room), joinOrigin: getLanOrigin() });
     socket.emit("game:lobby", hostRoomState(room));
     if (room.status === "question" || room.status === "paused") emitHostQuestion(room);
     if (room.status === "paused") socket.emit("game:paused", { remainingMs: room.remainingMs });
@@ -989,7 +1023,7 @@ io.on("connection", (socket) => {
     const elapsedMs = Math.max(0, Date.now() - room.questionStartedAt - room.pausedDurationMs);
     const elapsedSeconds = Math.max(1, Math.ceil(elapsedMs / 1000));
     if (payload.answerIndex === question.correctIndex) {
-      player.lastPoints = room.settings.n1 * elapsedSeconds;
+      player.lastPoints = Math.max(0, room.settings.n1 - elapsedSeconds + 1);
       player.score += player.lastPoints;
     } else {
       player.lastPoints = -Math.min(player.score, room.settings.n2);
@@ -1112,11 +1146,7 @@ async function startServer() {
   }
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Science Day Quiz is listening on port ${PORT}`);
-    for (const address of Object.values(require("node:os").networkInterfaces()).flat()) {
-      if (address && address.family === "IPv4" && !address.internal) {
-        console.log(`LAN access: http://${address.address}:${PORT}`);
-      }
-    }
+    for (const address of getLanAddresses()) console.log(`LAN access: http://${address}:${PORT}`);
   });
 }
 

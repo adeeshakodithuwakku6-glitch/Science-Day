@@ -4,67 +4,106 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#46178f">
-  <title>Science Day Quiz</title>
+  <link rel="icon" type="image/webp" href="/Logo/cba8d686-628c-49af-b822-94bdae0ef5dc.webp">
+  <title>MRCM Science Day Quiz | Science Day MRCM 2k26</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/styles.css">
   <script src="/auth-storage.js"></script>
 </head>
 <body class="landing-page min-h-screen text-white">
-  <main class="mx-auto flex min-h-screen max-w-5xl flex-col px-5 py-6">
+  <main class="landing-shell mx-auto flex min-h-screen max-w-5xl flex-col px-5 py-6">
     <header class="landing-nav flex items-center justify-between gap-4 px-4 py-3 sm:px-5">
       <a href="/" class="brand-lockup text-lg font-black tracking-wide">
         <span class="brand-symbol">⚛</span>
-        <span>SCIENCE DAY<span class="block text-xs font-semibold tracking-[.18em] text-purple-200">LIVE QUIZ</span></span>
+        <span class="landing-brand-copy">MRCM<span>SCIENCE DAY 2K26</span></span>
       </a>
       <div id="visitor-actions" class="flex gap-2">
-        <a href="/login.html" class="rounded-xl px-5 py-3 font-bold hover:bg-white/10">Log in</a>
-        <a href="/register.html" class="rounded-xl bg-white px-5 py-3 font-bold text-purple-900 hover:bg-purple-100">Register</a>
+        <a href="/login.html" class="landing-nav-button landing-nav-quiet rounded-xl px-5 py-3 font-bold">Log in</a>
+        <a href="/register.html" class="landing-nav-button landing-nav-solid rounded-xl px-5 py-3 font-bold">Register</a>
       </div>
       <div id="account-actions" class="hidden items-center gap-2">
-        <a id="profile-link" href="/play.html" class="rounded-xl bg-white px-5 py-3 font-bold text-purple-900 hover:bg-purple-100"></a>
-        <button id="logout" class="rounded-xl px-4 py-3 font-bold hover:bg-white/10">Log out</button>
+        <a id="profile-link" href="/play.html" class="landing-nav-button landing-nav-solid rounded-xl px-5 py-3 font-bold"></a>
+        <button id="logout" class="landing-nav-button landing-nav-quiet rounded-xl px-4 py-3 font-bold">Log out</button>
       </div>
     </header>
 
     <section class="landing-hero grid flex-1 items-center gap-12 py-14 md:grid-cols-[1.1fr_.9fr] md:py-20">
       <div class="landing-copy">
-        <p class="inline-flex items-center gap-2 rounded-full border border-purple-200/20 bg-white/10 px-4 py-2 text-sm font-bold uppercase tracking-[.18em] text-purple-100">
-          <span class="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_#6ee7b7]"></span> Think fast. Have fun.
+        <p class="landing-event-badge">
+          <span class="landing-live-dot" aria-hidden="true"></span>
+          Official event <span class="landing-badge-divider">/</span> Science Day MRCM 2k26
         </p>
-        <h1 class="mt-4 text-5xl font-black leading-tight sm:text-6xl">Science is better when we play.</h1>
-        <p class="mt-5 max-w-xl text-lg leading-relaxed text-purple-100">
-          Join the School Science Day live quiz, answer questions on your phone, and see how you rank.
+        <h1 class="landing-title mt-4">MRCM <span>Science Day</span> Quiz</h1>
+        <p class="landing-lede mt-5 max-w-xl text-lg leading-relaxed">
+          Celebrate Science Day MRCM 2k26 with a fast-paced live quiz. Join the game, test your science knowledge, and see how you rank.
         </p>
         <div id="hero-actions" class="mt-8 flex flex-wrap gap-3">
-          <a href="/register.html" class="rounded-xl bg-white px-7 py-4 text-lg font-extrabold text-purple-900 shadow-lg hover:bg-purple-100">Create account</a>
-          <a href="/login.html" class="rounded-xl border border-white/40 px-7 py-4 text-lg font-extrabold hover:bg-white/10">Log in</a>
+          <a href="/register.html" class="landing-cta landing-cta-primary rounded-xl px-7 py-4 text-lg font-extrabold">Create account <span aria-hidden="true">→</span></a>
+          <a href="/login.html" class="landing-cta landing-cta-secondary rounded-xl px-7 py-4 text-lg font-extrabold">Log in</a>
         </div>
-        <form id="join-by-pin-form" class="mt-8 flex max-w-xl flex-wrap gap-3">
+        <form id="join-by-pin-form" class="landing-pin-form mt-8 flex max-w-xl flex-wrap gap-3">
           <label class="sr-only" for="homepage-pin">Game PIN</label>
           <input id="homepage-pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required
             placeholder="Enter 6-digit game PIN"
-            class="min-w-0 flex-1 rounded-xl border border-white/30 bg-white px-5 py-4 text-lg font-bold tracking-widest text-purple-950 placeholder:tracking-normal placeholder:text-slate-500 focus:outline-none focus:ring-4 focus:ring-purple-300">
-          <button class="rounded-xl bg-emerald-400 px-6 py-4 text-lg font-extrabold text-emerald-950 hover:bg-emerald-300">Join game</button>
+            class="min-w-0 flex-1 rounded-xl px-5 py-4 text-lg font-bold tracking-widest">
+          <button class="landing-join-button rounded-xl px-6 py-4 text-lg font-extrabold">Join game <span aria-hidden="true">↗</span></button>
         </form>
-        <div class="mt-8 flex flex-wrap gap-2">
-          <span class="feature-pill"><span class="text-emerald-300">✦</span> Live multiplayer</span>
-          <span class="feature-pill"><span class="text-amber-300">◷</span> Fast-paced rounds</span>
+        <div class="landing-features mt-8 flex flex-wrap gap-2">
+          <span class="feature-pill"><span aria-hidden="true">✦</span> Live multiplayer</span>
+          <span class="feature-pill"><span aria-hidden="true">◷</span> Fast-paced rounds</span>
+          <span class="feature-pill"><span aria-hidden="true">⌁</span> Climb the ranks</span>
         </div>
-        <p id="signed-in-message" class="mt-6 hidden text-purple-100">You're signed in. Join when the host shares the game PIN.</p>
+        <p id="signed-in-message" class="landing-signed-in mt-6 hidden">You're signed in. Join when the host shares the game PIN.</p>
       </div>
-      <div class="landing-art mx-auto w-full max-w-md rounded-[2rem] p-8 text-center text-slate-900 sm:p-10">
-        <p class="relative z-10 text-xs font-extrabold uppercase tracking-[.24em] text-purple-700">A little friendly competition</p>
-        <div class="shape-orbit relative z-10" aria-hidden="true">🔬</div>
-        <h2 class="relative z-10 text-2xl font-black">Ready for the challenge?</h2>
-        <p class="relative z-10 mt-2 text-slate-600">Enter the PIN on your screen and see what you know.</p>
-        <div class="relative z-10 mt-6 flex items-center justify-center gap-3" aria-hidden="true">
-          <span class="shape-chip text-rose-600">▲</span><span class="shape-chip text-sky-600">◆</span><span class="shape-chip text-amber-500">●</span><span class="shape-chip text-emerald-600">■</span>
+      <div class="landing-art mx-auto w-full max-w-md rounded-[2rem] p-8 sm:p-10">
+        <div class="art-topline">
+          <span><i aria-hidden="true"></i> SCIENCE ARENA</span>
+          <span class="art-year">2K26</span>
+        </div>
+        <div class="science-orbit" aria-hidden="true">
+          <span class="orbit-ring orbit-ring-one"></span>
+          <span class="orbit-ring orbit-ring-two"></span>
+          <span class="orbit-ring orbit-ring-three"></span>
+          <span class="orbit-dot orbit-dot-one"></span>
+          <span class="orbit-dot orbit-dot-two"></span>
+          <span class="orbit-dot orbit-dot-three"></span>
+          <span class="science-core">⚛</span>
+        </div>
+        <div class="art-copy">
+          <p>THINK <span>•</span> DISCOVER <span>•</span> COMPETE</p>
+          <h2>Curiosity in action.</h2>
+          <span>One question can change everything.</span>
+        </div>
+        <div class="art-subjects" aria-label="Science subjects">
+          <span>Physics</span><span>Chemistry</span><span>Biology</span><span>Maths</span>
         </div>
       </div>
     </section>
 
-    <footer class="border-t border-white/20 py-5 text-center text-sm text-purple-200">
-      School Science Day Quiz
+    <section class="landing-highlights" aria-label="Quiz highlights">
+      <article class="highlight-card">
+        <span class="highlight-icon highlight-violet" aria-hidden="true">✦</span>
+        <div><h2>Play together</h2><p>Join a live quiz and compete with your friends.</p></div>
+        <span class="highlight-number" aria-hidden="true">01</span>
+      </article>
+      <article class="highlight-card">
+        <span class="highlight-icon highlight-cyan" aria-hidden="true">◷</span>
+        <div><h2>Think quickly</h2><p>Every second counts when the questions are on.</p></div>
+        <span class="highlight-number" aria-hidden="true">02</span>
+      </article>
+      <article class="highlight-card">
+        <span class="highlight-icon highlight-amber" aria-hidden="true">↗</span>
+        <div><h2>Rise up the ranks</h2><p>Show what you know and claim your place.</p></div>
+        <span class="highlight-number" aria-hidden="true">03</span>
+      </article>
+    </section>
+
+    <footer class="landing-footer border-t border-white/20 py-5 text-center text-sm text-purple-200">
+      <p class="font-bold">Science Society MRCM</p>
+      <a class="landing-footer-link mt-2 inline-block font-bold" href="https://github.com/adeeshakodithuwakku6-glitch" target="_blank" rel="noopener noreferrer">
+        Developed by Adeesha-Your Software Partner
+      </a>
+      <p class="mt-2 text-xs">© 2026 All rights reserved.</p>
     </footer>
     <p id="message" role="alert" class="fixed bottom-5 left-1/2 hidden -translate-x-1/2 rounded-xl bg-red-100 px-5 py-3 font-bold text-red-900 shadow-lg"></p>
   </main>

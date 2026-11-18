@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#46178f">
-  <title>Science Day Quiz — Admin</title>
+  <meta name="theme-color" content="#241044">
+  <link rel="icon" type="image/webp" href="/Logo/cba8d686-628c-49af-b822-94bdae0ef5dc.webp">
+  <title>MRCM Science Day Quiz — Admin</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/styles.css">
   <script src="/auth-storage.js"></script>
@@ -15,17 +16,17 @@
 </head>
 <body class="admin-page min-h-screen text-slate-900">
   <header class="admin-header px-5 py-6 text-white">
-    <div class="mx-auto flex max-w-6xl items-center justify-between gap-4">
+    <div class="admin-header-inner mx-auto flex max-w-6xl items-center justify-between gap-4">
       <div>
-        <p class="text-sm font-bold uppercase tracking-[.2em] text-purple-200">⚛ &nbsp; School Science Day</p>
-        <h1 class="text-3xl font-black">Question Admin</h1>
+        <p class="admin-event-label">⚛ &nbsp; Science Day MRCM 2k26</p>
+        <h1 class="text-3xl font-black">Quiz Admin Panel</h1>
       </div>
-      <div class="flex gap-2">
+      <nav class="admin-nav flex gap-2" aria-label="Admin navigation">
         <a href="/" class="rounded-lg bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Home</a>
         <a id="admin-name" href="/" class="rounded-lg bg-white px-4 py-2 font-bold text-purple-900 hover:bg-purple-100"></a>
         <a href="/host.html" class="rounded-lg bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Host screen</a>
         <button id="logout" class="rounded-lg bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Log out</button>
-      </div>
+      </nav>
     </div>
   </header>
 
@@ -241,6 +242,22 @@
           host.className = "rounded-lg bg-purple-100 px-3 py-2 text-sm font-bold text-purple-900";
           host.textContent = "Join live on host panel";
           actions.append(host);
+
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "rounded-lg bg-red-100 px-3 py-2 text-sm font-bold text-red-800 hover:bg-red-200";
+          deleteButton.textContent = "Delete";
+          deleteButton.addEventListener("click", async () => {
+            if (!window.confirm(`Delete "${game.title}"? This will stop the game and permanently remove its saved history.`)) return;
+            try {
+              await api(`/api/admin/games/${encodeURIComponent(game.pin)}`, { method: "DELETE" });
+              await loadGames();
+              showNotice(`"${game.title}" was deleted.`);
+            } catch (error) {
+              showNotice(error.message, true);
+            }
+          });
+          actions.append(deleteButton);
         }
         const availableActions = {
           lobby: ["start", "Start"],

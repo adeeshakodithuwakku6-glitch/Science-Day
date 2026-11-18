@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#46178f">
-  <title>Science Day Quiz — Host</title>
+  <meta name="theme-color" content="#241044">
+  <link rel="icon" type="image/webp" href="/Logo/cba8d686-628c-49af-b822-94bdae0ef5dc.webp">
+  <title>MRCM Science Day Quiz — Host</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -18,18 +19,21 @@
   </style>
 </head>
 <body class="quiz-stage min-h-screen text-white">
-  <main class="stage-main mx-auto min-h-screen max-w-7xl px-5 py-8 lg:px-10">
-    <header class="mb-8 flex flex-wrap items-center justify-between gap-4">
+  <main class="stage-main host-app mx-auto min-h-screen max-w-7xl px-5 py-8 lg:px-10">
+    <header class="host-header mb-8 flex flex-wrap items-center justify-between gap-4">
       <div>
-        <p class="text-sm font-bold uppercase tracking-[.25em] text-purple-200">⚛ &nbsp; School Science Day</p>
-        <h1 class="text-4xl font-black md:text-5xl">Science Quiz</h1>
+        <p class="host-event-label">⚛ &nbsp; Science Day MRCM 2k26</p>
+        <h1 class="text-4xl font-black md:text-5xl">MRCM Quiz Host</h1>
       </div>
-      <nav class="flex flex-wrap gap-2" aria-label="Main navigation">
-        <a href="/" class="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Home</a>
-        <a href="/admin.html" class="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20">Admin panel</a>
+      <nav class="host-nav flex flex-wrap gap-2" aria-label="Main navigation">
+        <a href="/" class="host-nav-button rounded-xl px-4 py-2 font-bold">Home</a>
+        <a href="/admin.html" class="host-nav-button rounded-xl px-4 py-2 font-bold">Admin panel</a>
       </nav>
     </header>
-    <p id="host-error" role="alert" class="mb-5 hidden rounded-lg bg-red-100 p-3 font-bold text-red-900"></p>
+    <div id="host-error" role="alert" class="host-error mb-5 hidden flex items-center justify-between gap-3 rounded-lg bg-red-100 p-3 font-bold text-red-900">
+      <span id="host-error-message"></span>
+      <button id="host-error-close" type="button" aria-label="Dismiss message" class="shrink-0 rounded px-2 text-xl leading-none hover:bg-red-200">×</button>
+    </div>
 
     <section id="start-screen" class="host-card mx-auto max-w-xl rounded-3xl bg-white p-8 text-center text-slate-900">
       <h2 class="text-3xl font-black">Create a live game</h2>
@@ -44,8 +48,8 @@
             <input id="starting-score" type="number" min="0" max="1000000" step="1" value="0" required
               class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
           </label>
-          <label class="block text-sm font-bold">n1 · correct
-            <input id="score-n1" type="number" min="0" max="1000000" step="1" value="10" required
+          <label class="block text-sm font-bold">Max correct-answer points
+            <input id="score-n1" type="number" min="0" max="1000000" step="1" value="20" required
               class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
           </label>
           <label class="block text-sm font-bold">n2 · wrong penalty
@@ -122,6 +126,10 @@
         <h2 class="mt-3 text-5xl font-black">Game over!</h2>
       </div>
       <div id="podium" class="mx-auto mt-8 grid max-w-4xl grid-cols-1 items-end gap-4 sm:grid-cols-3"></div>
+      <div class="mx-auto mt-8 max-w-4xl rounded-2xl bg-white p-6 text-slate-900">
+        <h3 class="text-2xl font-black">Full rankings</h3>
+        <ol id="final-leaderboard" class="mt-4 max-h-96 space-y-2 overflow-y-auto"></ol>
+      </div>
       <button id="play-again" class="mx-auto mt-8 block rounded-xl bg-white px-8 py-4 text-xl font-extrabold text-purple-900 hover:bg-purple-100">Play Again</button>
     </section>
   </main>
@@ -144,10 +152,18 @@
       });
     }
     function showError(message) {
-      const error = document.getElementById("host-error");
-      error.textContent = message;
-      error.classList.remove("hidden");
+      document.getElementById("host-error-message").textContent = message;
+      document.getElementById("host-error").classList.remove("hidden");
     }
+    document.getElementById("host-error-close").addEventListener("click", () => {
+      document.getElementById("host-error").classList.add("hidden");
+    });
+    socket.on("game:deleted", () => {
+      clearInterval(timerInterval);
+      showError("This game was deleted by an administrator.");
+      showScreen("start-screen");
+      loadQuestions().catch(showError);
+    });
     function renderLobby(state) {
       document.getElementById("player-count").textContent = `${state.players.length} joined`;
       const list = document.getElementById("player-list");
@@ -178,12 +194,16 @@
       if (!entries.length) list.textContent = "No players";
     }
 
-    function setupLobby(pin, title = "Science Quiz") {
+    function setupLobby(pin, title = "Science Quiz", lanOrigin = null) {
       roomPin = pin;
       window.history.replaceState(null, "", `/host.html?pin=${encodeURIComponent(pin)}`);
       document.title = `${title} — Host`;
       document.getElementById("room-pin").textContent = roomPin;
-      const joinUrl = `${window.location.origin}/?pin=${encodeURIComponent(roomPin)}`;
+      const localHostnames = ["localhost", "127.0.0.1", "::1", "[::1]"];
+      const origin = localHostnames.includes(window.location.hostname) && lanOrigin
+        ? lanOrigin
+        : window.location.origin;
+      const joinUrl = `${origin}/?pin=${encodeURIComponent(roomPin)}`;
       document.getElementById("join-url").textContent = joinUrl;
       document.getElementById("qr-code").replaceChildren();
       if (window.QRCode) {
@@ -203,8 +223,9 @@
         if (result?.error) {
           showError(result.error);
           showScreen("start-screen");
+          loadQuestions().catch(showError);
         }
-        else setupLobby(result.game.pin, result.game.title);
+        else setupLobby(result.game.pin, result.game.title, result.joinOrigin);
       });
     }
 
@@ -279,7 +300,8 @@
         loadQuestions().catch(showError);
         return;
       }
-      watchGame(roomPin);
+      socket.on("connect", () => watchGame(roomPin));
+      if (socket.connected) watchGame(roomPin);
     }
 
     document.getElementById("start-game").addEventListener("click", () => {
@@ -400,6 +422,21 @@
           card.textContent = `${rankIndex + 1}${rankIndex === 0 ? "st" : rankIndex === 1 ? "nd" : "rd"} place`;
         }
         podium.append(card);
+      });
+      const finalLeaderboard = document.getElementById("final-leaderboard");
+      finalLeaderboard.replaceChildren();
+      leaderboard.forEach((player) => {
+        const row = document.createElement("li");
+        row.className = "grid grid-cols-[3.5rem_1fr_auto] items-center gap-3 rounded-xl bg-slate-100 px-4 py-3";
+        const rank = document.createElement("strong");
+        rank.textContent = `${player.rank}.`;
+        const name = document.createElement("span");
+        name.className = "break-words font-bold";
+        name.textContent = player.nickname;
+        const score = document.createElement("strong");
+        score.textContent = `${player.score} points`;
+        row.append(rank, name, score);
+        finalLeaderboard.append(row);
       });
       showScreen("podium-screen");
     });
