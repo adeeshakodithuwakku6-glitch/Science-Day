@@ -80,6 +80,32 @@
       </div>
     </section>
 
+    <section class="mt-8 grid gap-8 rounded-3xl border border-white/15 bg-white/5 p-6 backdrop-blur sm:p-8 lg:grid-cols-[.8fr_1.2fr]" aria-labelledby="event-list-title">
+      <div>
+        <p class="text-sm font-extrabold uppercase tracking-[.18em] text-cyan-200">Competition stages</p>
+        <h2 id="event-list-title" class="mt-2 text-2xl font-black sm:text-3xl">The event list</h2>
+        <p class="mt-2 text-sm leading-relaxed text-purple-100">The list shows the default order. The Admin can reorder rounds when creating a game; Practical Quiz follows Rapid Fire, and Paper Marks are always last. Each live game shows its chosen order.</p>
+        <ol class="mt-5 space-y-3">
+          <li class="flex items-center gap-3"><span class="grid h-8 w-8 place-items-center rounded-full bg-violet-400/15 font-black text-violet-200">1</span><span class="font-bold">Rapid Fire</span></li>
+          <li class="flex items-center gap-3"><span class="grid h-8 w-8 place-items-center rounded-full bg-cyan-400/15 font-black text-cyan-200">2</span><span class="font-bold">Quiz</span></li>
+          <li class="flex items-center gap-3"><span class="grid h-8 w-8 place-items-center rounded-full bg-amber-400/15 font-black text-amber-200">3</span><span class="font-bold">Practical Quiz</span></li>
+          <li class="flex items-center gap-3"><span class="grid h-8 w-8 place-items-center rounded-full bg-emerald-400/15 font-black text-emerald-200">4</span><span class="font-bold">Final Paper Marks</span></li>
+        </ol>
+      </div>
+      <div>
+        <div class="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p class="text-sm font-extrabold uppercase tracking-[.18em] text-cyan-200">Live games</p>
+            <h3 class="mt-2 text-xl font-black">Join an open lobby</h3>
+          </div>
+          <span id="event-list-updated" class="text-xs text-purple-200" aria-live="polite">Checking for live games…</span>
+        </div>
+        <div id="live-event-list" class="mt-4 grid gap-3" aria-live="polite">
+          <p class="rounded-2xl border border-white/10 bg-black/10 p-4 text-sm text-purple-100">Loading live games…</p>
+        </div>
+      </div>
+    </section>
+
     <section class="landing-highlights" aria-label="Quiz highlights">
       <article class="highlight-card">
         <span class="highlight-icon highlight-violet" aria-hidden="true">✦</span>
@@ -109,6 +135,8 @@
   </main>
   <script>
     const message = document.getElementById("message");
+    const liveEventList = document.getElementById("live-event-list");
+    const eventListUpdated = document.getElementById("event-list-updated");
     let signedInUser = null;
     const requestedPin = new URLSearchParams(window.location.search).get("pin");
     if (/^\d{6}$/.test(requestedPin || "")) {
@@ -140,6 +168,73 @@
 
     const rememberedUser = quizAuthStorage.getUser();
     if (rememberedUser) renderSignedInUser(rememberedUser);
+
+    function renderLiveEvents(events) {
+      liveEventList.replaceChildren();
+      if (!events.length) {
+        const empty = document.createElement("p");
+        empty.className = "rounded-2xl border border-white/10 bg-black/10 p-4 text-sm text-purple-100";
+        empty.textContent = "There are no live games right now. Check back when the host opens a lobby.";
+        liveEventList.append(empty);
+        return;
+      }
+
+      for (const game of events) {
+        const card = document.createElement("article");
+        card.className = "flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/10 p-4";
+        const details = document.createElement("div");
+        details.className = "min-w-0";
+        const title = document.createElement("h4");
+        title.className = "truncate font-extrabold";
+        title.textContent = game.title;
+        const status = document.createElement("p");
+        status.className = "mt-1 text-sm text-purple-100";
+        status.textContent = `${game.round} · ${game.status} · ${game.playerCount} player${game.playerCount === 1 ? "" : "s"}`;
+        details.append(title, status);
+        const order = document.createElement("p");
+        order.className = "mt-1 text-xs text-purple-200";
+        order.textContent = `Order: ${(game.roundOrder || []).join(" → ")}`;
+        details.append(order);
+        card.append(details);
+
+        if (game.joinPin) {
+          const joinButton = document.createElement("button");
+          joinButton.type = "button";
+          joinButton.className = "landing-join-button rounded-xl px-5 py-3 font-extrabold";
+          joinButton.textContent = `Join · PIN ${game.joinPin}`;
+          joinButton.addEventListener("click", () => {
+            document.getElementById("homepage-pin").value = game.joinPin;
+            document.getElementById("homepage-pin").scrollIntoView({ behavior: "smooth", block: "center" });
+            document.getElementById("homepage-pin").focus({ preventScroll: true });
+          });
+          card.append(joinButton);
+        } else {
+          const inProgress = document.createElement("span");
+          inProgress.className = "rounded-xl border border-white/10 px-4 py-2 text-sm font-bold text-purple-200";
+          inProgress.textContent = "In progress";
+          card.append(inProgress);
+        }
+        liveEventList.append(card);
+      }
+    }
+
+    async function refreshLiveEvents() {
+      try {
+        const response = await fetch("/api/events", { cache: "no-store" });
+        if (!response.ok) throw new Error("Could not load live games.");
+        renderLiveEvents(await response.json());
+        eventListUpdated.textContent = "Updated just now";
+      } catch (error) {
+        eventListUpdated.textContent = "Live games unavailable";
+        const failure = document.createElement("p");
+        failure.className = "rounded-2xl border border-red-300/20 bg-red-950/20 p-4 text-sm text-red-100";
+        failure.textContent = error.message;
+        liveEventList.replaceChildren(failure);
+      }
+    }
+
+    refreshLiveEvents();
+    window.setInterval(refreshLiveEvents, 15000);
 
     fetch("/api/auth/me")
       .then(async (response) => {

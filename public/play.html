@@ -23,6 +23,10 @@
       </a>
       <span class="player-live-badge"><span aria-hidden="true"></span> Player</span>
     </header>
+    <section id="public-totals" class="player-card mb-6 hidden rounded-2xl p-4 text-slate-900">
+      <h2 class="text-lg font-black">Cumulative team totals</h2>
+      <ol id="public-total-list" class="mt-3 grid gap-2 sm:grid-cols-2"></ol>
+    </section>
 
     <section id="join-screen" class="player-card player-screen mx-auto w-full max-w-xl rounded-3xl p-6 text-slate-900 sm:p-9">
       <div class="player-intro">
@@ -63,6 +67,49 @@
       <p id="waiting-name" class="player-waiting-name"></p>
     </section>
 
+    <section id="round-screen" class="player-card player-screen hidden rounded-3xl p-7 text-center text-slate-900 sm:p-10">
+      <p id="round-label" class="player-eyebrow"></p>
+      <h2 id="round-title" class="player-title mt-2"></h2>
+      <p id="round-copy" class="player-subtitle mx-auto mt-4 max-w-2xl"></p>
+      <p id="round-active" class="mt-5 text-lg font-black text-purple-900"></p>
+      <p id="round-timer" class="mt-2 text-2xl font-black text-purple-700"></p>
+      <ol id="rapid-order" class="mx-auto mt-5 max-w-xl space-y-2 text-left"></ol>
+      <div id="theme-options" class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3"></div>
+      <div id="player-video-wrap" class="mt-5 hidden">
+        <video id="player-video" class="w-full rounded-xl bg-black" controls playsinline></video>
+      </div>
+      <button id="player-buzzer" type="button" class="player-primary-button mt-6 hidden">🔔 Press buzzer</button>
+      <p id="buzzer-status" class="mt-4 font-bold"></p>
+    </section>
+
+    <section id="practical-question-screen" class="player-card player-screen hidden rounded-3xl p-7 text-slate-900 sm:p-10">
+      <p class="player-eyebrow">Your practical question</p>
+      <h2 id="practical-question" class="player-title mt-2"></h2>
+      <p class="mt-3 font-bold">Time left: <span id="practical-timer"></span>s</p>
+      <form id="practical-answer-form" class="mt-5 flex flex-wrap gap-2">
+        <input id="practical-answer" maxlength="500" required class="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-3" placeholder="Type your answer">
+        <button class="rounded-xl bg-purple-700 px-5 py-3 font-bold text-white">Submit</button>
+      </form>
+    </section>
+
+    <section id="buzzer-chance-screen" class="player-card player-screen hidden rounded-3xl p-7 text-slate-900 sm:p-10">
+      <p class="player-eyebrow">Your buzzer chance</p>
+      <h2 id="buzzer-chance-question" class="player-title mt-2"></h2>
+      <p class="mt-3 font-bold">Time left: <span id="buzzer-chance-timer"></span>s</p>
+      <form id="buzzer-answer-form" class="mt-5 flex flex-wrap gap-2">
+        <input id="buzzer-answer" maxlength="500" required class="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-3" placeholder="Type your answer">
+        <button class="rounded-xl bg-purple-700 px-5 py-3 font-bold text-white">Submit answer</button>
+        <button id="buzzer-pass" type="button" class="rounded-xl bg-slate-200 px-5 py-3 font-bold">Pass</button>
+      </form>
+    </section>
+
+    <section id="report-locked-screen" class="player-card player-screen hidden rounded-3xl p-8 text-center text-slate-900">
+      <p class="player-state-icon player-state-trophy" aria-hidden="true">🏆</p>
+      <h2 class="player-title mt-3">Competition complete</h2>
+      <p class="player-subtitle mt-3">The final player report has not been enabled by the administrator.</p>
+      <a href="/" class="player-primary-button mt-6">Back to home</a>
+    </section>
+
     <section id="question-screen" class="player-screen hidden">
       <div class="player-question-toolbar">
         <div class="player-progress-copy">
@@ -79,6 +126,7 @@
       <div class="player-question-card">
         <p class="player-eyebrow">Choose the best answer</p>
         <h2 id="question-text" class="player-question-text"></h2>
+        <img id="question-image" class="mx-auto mt-4 hidden max-h-72 max-w-full rounded-xl object-contain" alt="Question illustration">
       </div>
       <div id="answer-grid" class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4"></div>
     </section>
@@ -92,6 +140,10 @@
         <div><span>Total score</span><strong id="feedback-score"></strong></div>
         <div><span>Current rank</span><strong id="feedback-rank"></strong></div>
       </div>
+      <section id="quiz-rankings-wrap" class="mt-6 hidden text-left">
+        <h3 class="text-xl font-black">Main Quiz leaderboard</h3>
+        <ol id="quiz-rankings" class="player-rankings mt-3"></ol>
+      </section>
       <p class="player-subtitle mt-6">Look at the big screen for the next question.</p>
     </section>
 
@@ -108,14 +160,20 @@
     <p id="error-message" role="alert" class="player-error hidden"></p>
     <footer class="player-footer">Science Day MRCM 2k26 <span>·</span> Live quiz</footer>
   </main>
+  <!-- Drop a custom buzzer sound file at public/buzzer.mp3 to enable local playback. -->
+  <audio id="buzzer-sound" src="/buzzer.mp3" preload="auto"></audio>
   <script>
     const socket = io({ autoConnect: false });
-    const screens = ["join-screen", "waiting-screen", "question-screen", "feedback-screen", "final-screen"];
+    const screens = ["join-screen", "waiting-screen", "round-screen", "practical-question-screen", "buzzer-chance-screen", "report-locked-screen", "question-screen", "feedback-screen", "final-screen"];
     const colors = ["bg-rose-600 hover:bg-rose-700", "bg-sky-600 hover:bg-sky-700", "bg-amber-500 hover:bg-amber-600", "bg-emerald-600 hover:bg-emerald-700"];
     const shapes = ["▲", "◆", "●", "■"];
     let roomPin = "";
     let timerInterval;
     let hasAnswered = false;
+    let activeRound = "";
+    let playerId = "";
+    let permissions = { showQuizLeaderboardAndRanks: true, showTeamTotalToPlayers: false, showUserFinalReport: false };
+    let currentNickname = "";
     function showScreen(id) {
       screens.forEach((screen) => document.getElementById(screen).classList.toggle("hidden", screen !== id));
     }
@@ -123,6 +181,144 @@
       const error = document.getElementById("error-message");
       error.textContent = message;
       error.classList.remove("hidden");
+    }
+    function renderPublicTotals(state) {
+      const entries = state.totals || [];
+      const list = document.getElementById("public-total-list");
+      list.replaceChildren();
+      entries.forEach((player) => {
+        const row = document.createElement("li");
+        row.className = "flex justify-between gap-3 rounded-lg bg-purple-50 px-3 py-2 font-bold";
+        const name = document.createElement("span");
+        name.textContent = player.nickname;
+        const score = document.createElement("strong");
+        score.textContent = `${player.score} pts`;
+        row.append(name, score);
+        list.append(row);
+      });
+      document.getElementById("public-totals").classList.toggle("hidden", !entries.length);
+    }
+    function renderRoundState(state) {
+      renderPublicTotals(state);
+      permissions = state.permissions || permissions;
+      if (state.status === "finished") {
+        if (permissions.showUserFinalReport) renderFinalLeaderboard(state.leaderboard || [], permissions.showTeamTotalToPlayers);
+        else showScreen("report-locked-screen");
+        return;
+      }
+      if (["lobby", "question", "paused", "review"].includes(state.status)) return;
+      if (state.status === "rapid-common" && !document.getElementById("question-screen").classList.contains("hidden")) return;
+      clearInterval(timerInterval);
+      const copy = {
+        "rapid-rules": ["Round 1 · Rapid Fire", "Rapid Fire rules", "First, everyone answers the common question together. Fastest correct answers set the calling order. The announcer then asks questions verbally during each timed turn; only the administrator records answers and awards points."],
+        "rapid-common": ["Round 1 · Rapid Fire", "Common question", state.commonQuestion || "Answer on your player screen. This answer determines the turn order."],
+        "rapid-turns": ["Round 1 · Rapid Fire", "Rapid Fire turns", "The administrator is calling participants in the common-question leaderboard order."],
+        "rapid-turn": ["Round 1 · Rapid Fire", "Live turn", `The announcer is asking ${state.rapidTurn?.nickname || "a participant"} questions.`],
+        "quiz-rules": ["Round 2 · Main Quiz", "Quiz rules", "Correct answers earn the configured points minus one for each elapsed second, with a minimum of one point. Wrong answers and timeouts apply the same fixed penalty."],
+        "practical-rules": ["Event 3 · Practical Quiz", "Practical Quiz rules", "Participants choose a theme in Rapid Fire order, watch the short video, then answer individually. The event ends with a common buzzer question and up to two chances in press order."],
+        "practical-theme": ["Round 3A · Theme selection", "Choose a theme", `${state.activePlayer || "The active participant"} is choosing a theme.`],
+        "practical-video": ["Round 3A · Video stage", state.theme?.name || "Practical video", `The video is playing for ${state.activePlayer || "the active participant"} and is visible to everyone.`],
+        "practical-question": ["Round 3A · Individual question", "Question in progress", `Only ${state.activePlayer || "the active participant"} can see and answer this question.`],
+        "buzzer": ["Round 3B · Buzzer", "Buzzer open", "The first two participants to press are eligible. Press the buzzer now."],
+        "buzzer-ready": ["Round 3B · Buzzer", "Buzzer chances", "The administrator grants chances in press order. If the first answer is correct, no second chance is given."],
+        "buzzer-results": ["Event 3B · Buzzer", "Buzzer results", "The administrator enters Final Paper Marks next."],
+        "paper-marks": ["Event 4 · Final Paper Marks", "Admin is entering Paper Marks", "Paper Marks are added to each participant's total by the administrator."],
+        "paper-results": ["Event 4 · Final Paper Marks", "Marks added", "The administrator is ready to publish the final overall leaderboard."]
+      };
+      const detail = copy[state.status] || ["Science Day", "Competition in progress", ""];
+      document.getElementById("round-label").textContent = detail[0]
+        .replace(/^(?:Round|Event) \d+/, `Round ${state.roundNumber || 1}`);
+      document.getElementById("round-title").textContent = detail[1];
+      document.getElementById("round-copy").textContent = state.rulesText || detail[2];
+      if (state.status === "buzzer-results") {
+        document.getElementById("round-copy").textContent = state.nextRound
+          ? `The administrator can continue to ${state.nextRound === "main-quiz" ? "Quiz" : "Practical Quiz"} next.`
+          : "The administrator enters Final Paper Marks next.";
+      }
+      if (state.status.startsWith("buzzer") && state.buzzer?.question) {
+        document.getElementById("round-copy").textContent = state.buzzer.question;
+      }
+      document.getElementById("round-active").textContent = state.activePlayer ? `Active: ${state.activePlayer}` : "";
+      const rapidOrder = document.getElementById("rapid-order");
+      rapidOrder.replaceChildren();
+      rapidOrder.classList.toggle("hidden", !["rapid-turns", "rapid-turn"].includes(state.status));
+      (state.rapidOrder || []).forEach((player) => {
+        const row = document.createElement("li");
+        row.className = "rounded-lg bg-purple-50 px-4 py-2 font-bold";
+        row.textContent = `${player.rank}. ${player.nickname}`;
+        rapidOrder.append(row);
+      });
+      const deadline = state.status === "rapid-turn" ? state.rapidTurn?.deadline :
+        state.status === "practical-video" ? state.videoDeadline :
+        state.status === "practical-question" ? state.practicalDeadline :
+        state.status === "buzzer" ? state.buzzer?.deadline : 0;
+      const updateRoundTimer = () => {
+        const remaining = deadline ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0;
+        document.getElementById("round-timer").textContent = deadline ? `${remaining}s` : "";
+        if (!remaining) clearInterval(timerInterval);
+      };
+      updateRoundTimer();
+      if (deadline) timerInterval = setInterval(updateRoundTimer, 200);
+      const themes = document.getElementById("theme-options");
+      themes.replaceChildren();
+      (state.themes || []).forEach((theme) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = theme;
+        button.className = "rounded-xl bg-purple-100 px-4 py-3 font-bold text-purple-900 disabled:opacity-50";
+        button.disabled = state.activePlayerId !== playerId;
+        button.addEventListener("click", () => socket.emit("player:theme", { pin: roomPin, theme }, (result) => {
+          if (result?.error) showError(result.error);
+        }));
+        themes.append(button);
+      });
+      if (state.theme?.name && state.status === "practical-video") {
+        document.getElementById("round-copy").textContent = `${state.activePlayer || "The active participant"} chose ${state.theme.name}. The video is playing for everyone.`;
+      }
+      const video = document.getElementById("player-video");
+      const videoWrap = document.getElementById("player-video-wrap");
+      if (state.status === "practical-video" && state.theme?.videoUrl) {
+        if (video.getAttribute("src") !== state.theme.videoUrl) {
+          video.src = state.theme.videoUrl;
+          video.load();
+          video.play().catch(() => showError("Video autoplay was blocked; tap play to start the practical video."));
+        }
+        videoWrap.classList.remove("hidden");
+      } else {
+        videoWrap.classList.add("hidden");
+        video.pause();
+      }
+      const buzzerButton = document.getElementById("player-buzzer");
+      buzzerButton.classList.toggle("hidden", state.status !== "buzzer");
+      buzzerButton.disabled = state.status !== "buzzer" || (state.buzzer?.queue?.length || 0) >= 2;
+      document.getElementById("buzzer-status").textContent = (state.buzzer?.queue || [])
+        .map((name, index) => `${index + 1}${index === 0 ? "st" : "nd"}: ${name}`).join(" · ");
+      showScreen("round-screen");
+    }
+
+    function renderFinalLeaderboard(leaderboard, showScores) {
+      const list = document.getElementById("final-rankings");
+      list.replaceChildren();
+      leaderboard.forEach((player) => {
+        const item = document.createElement("li");
+        item.className = "player-rank-row";
+        const rank = document.createElement("span");
+        rank.className = "player-rank-number";
+        rank.textContent = `#${player.rank}`;
+        const name = document.createElement("span");
+        name.className = "player-rank-name";
+        name.textContent = player.nickname;
+        item.append(rank, name);
+        if (showScores && player.score !== undefined) {
+          const score = document.createElement("strong");
+          score.className = "player-rank-score";
+          score.textContent = `${player.score} pts`;
+          item.append(score);
+        }
+        list.append(item);
+      });
+      if (!leaderboard.length) list.textContent = "The player report is enabled, but standings are not available.";
+      showScreen("final-screen");
     }
     socket.on("game:deleted", () => {
       clearInterval(timerInterval);
@@ -138,6 +334,7 @@
       document.getElementById("signed-in-name").textContent = user.name;
       const nickname = document.getElementById("nickname");
       nickname.value = quizAuthStorage.getNickname() || user.name;
+      currentNickname = nickname.value;
       document.getElementById("player-app").classList.remove("hidden");
       document.getElementById("player-app").classList.add("flex");
       socket.connect();
@@ -162,20 +359,67 @@
       socket.emit("player:join", { pin, nickname }, (result) => {
         if (result?.error) return showError(result.error);
         roomPin = result.pin;
+        playerId = result.playerId;
+        currentNickname = result.nickname;
         quizAuthStorage.saveNickname(result.nickname);
         quizAuthStorage.clearPin();
         document.getElementById("waiting-name").textContent = result.nickname;
         showScreen("waiting-screen");
       });
     });
+    document.getElementById("player-video").addEventListener("ended", () => {
+      socket.emit("player:practical-video-ended", { pin: roomPin }, (result) => {
+        if (result?.error) showError(result.error);
+      });
+    });
+    document.getElementById("practical-answer-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      socket.emit("player:practical-answer", {
+        pin: roomPin,
+        answer: document.getElementById("practical-answer").value.trim()
+      }, (result) => {
+        if (result?.error) showError(result.error);
+      });
+    });
+    document.getElementById("player-buzzer").addEventListener("click", (event) => {
+      event.currentTarget.disabled = true;
+      socket.emit("player:buzzer", { pin: roomPin }, (result) => {
+        if (result?.error) {
+          event.currentTarget.disabled = false;
+          showError(result.error);
+        }
+      });
+    });
+    document.getElementById("buzzer-answer-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      socket.emit("player:buzzer-answer", {
+        pin: roomPin,
+        answer: document.getElementById("buzzer-answer").value.trim()
+      }, (result) => {
+        if (result?.error) showError(result.error);
+        else document.getElementById("buzzer-answer").disabled = true;
+      });
+    });
+    document.getElementById("buzzer-pass").addEventListener("click", () => {
+      socket.emit("player:buzzer-pass", { pin: roomPin }, (result) => {
+        if (result?.error) showError(result.error);
+      });
+    });
 
-    socket.on("game:question", (question) => {
+    function renderQuestion(question) {
       clearInterval(timerInterval);
       hasAnswered = false;
       document.getElementById("paused-banner").classList.add("hidden");
-      document.getElementById("question-progress").textContent = `Question ${question.index} of ${question.total}`;
-      document.getElementById("question-progress-fill").style.width = `${(question.index / question.total) * 100}%`;
+      document.getElementById("question-progress").textContent = typeof question.index === "number"
+        ? `Question ${question.index} of ${question.total}`
+        : "Rapid Fire common question";
+      document.getElementById("question-progress-fill").style.width = typeof question.index === "number"
+        ? `${(question.index / question.total) * 100}%` : "100%";
       document.getElementById("question-text").textContent = question.question;
+      const image = document.getElementById("question-image");
+      image.classList.toggle("hidden", !question.image);
+      if (question.image) image.src = question.image;
+      else image.removeAttribute("src");
       document.getElementById("timer-card").classList.remove("player-timer-paused");
       const grid = document.getElementById("answer-grid");
       grid.replaceChildren();
@@ -208,6 +452,16 @@
       };
       updateTimer();
       timerInterval = setInterval(updateTimer, 200);
+    }
+    socket.on("game:question", renderQuestion);
+    socket.on("game:rapid-common", (question) => {
+      activeRound = "rapid-fire";
+      renderQuestion({
+        ...question,
+        index: "Common",
+        total: "Rapid Fire",
+        startedAt: Date.now()
+      });
     });
 
     socket.on("game:paused", () => {
@@ -239,35 +493,89 @@
       document.getElementById("feedback-icon").classList.toggle("player-state-success", result.correct === true);
       document.getElementById("feedback-icon").classList.toggle("player-state-failure", result.correct === false);
       document.getElementById("feedback-title").textContent = unanswered ? "Time's up!" : result.correct ? "Correct!" : "Not quite!";
-      document.getElementById("feedback-points").textContent = unanswered
-        ? "No answer — no points lost"
-        : result.points > 0 ? `+${result.points} points` : result.points < 0 ? `${result.points} points` : "0 points";
-      document.getElementById("feedback-score").textContent = `${result.score} pts`;
-      document.getElementById("feedback-rank").textContent = `#${result.rank}`;
-      showScreen("feedback-screen");
-    });
-
-    socket.on("game:podium", ({ leaderboard }) => {
-      clearInterval(timerInterval);
-      const list = document.getElementById("final-rankings");
-      list.replaceChildren();
-      leaderboard.forEach((player) => {
-        const item = document.createElement("li");
-        item.className = "player-rank-row";
+      document.getElementById("feedback-points").textContent = result.points === undefined
+        ? (unanswered ? "Time expired — score is hidden" : result.correct ? "Correct — score is hidden" : "Incorrect — score is hidden")
+        : result.points > 0 ? `+${result.points} points` : result.points < 0 ? `${result.points} points (fixed penalty)` : "0 points";
+      const scoreSummary = document.querySelector(".player-score-summary");
+      scoreSummary.classList.toggle("hidden", result.score === undefined && result.rank === undefined);
+      scoreSummary.children[0].classList.toggle("hidden", result.score === undefined);
+      scoreSummary.children[1].classList.toggle("hidden", result.rank === undefined);
+      if (result.score !== undefined) document.getElementById("feedback-score").textContent = `${result.score} pts`;
+      if (result.rank !== undefined) document.getElementById("feedback-rank").textContent = `#${result.rank}`;
+      const leaderboardWrap = document.getElementById("quiz-rankings-wrap");
+      const leaderboardList = document.getElementById("quiz-rankings");
+      leaderboardList.replaceChildren();
+      leaderboardWrap.classList.toggle("hidden", !Array.isArray(result.leaderboard));
+      (result.leaderboard || []).forEach((player) => {
+        const row = document.createElement("li");
+        row.className = "player-rank-row";
         const rank = document.createElement("span");
         rank.className = "player-rank-number";
-        rank.textContent = `#${player.rank}`;
+        rank.textContent = `${player.rank}${player.rank === 1 ? "st" : player.rank === 2 ? "nd" : player.rank === 3 ? "rd" : "th"}`;
         const name = document.createElement("span");
         name.className = "player-rank-name";
         name.textContent = player.nickname;
-        const score = document.createElement("strong");
-        score.className = "player-rank-score";
-        score.textContent = `${player.score} pts`;
-        item.append(rank, name, score);
-        list.append(item);
+        row.append(rank, name);
+        if (player.score !== undefined) {
+          const score = document.createElement("strong");
+          score.className = "player-rank-score";
+          score.textContent = `${player.score} pts`;
+          row.append(score);
+        }
+        leaderboardList.append(row);
       });
-      if (!leaderboard.length) list.textContent = "No players";
-      showScreen("final-screen");
+      showScreen("feedback-screen");
+    });
+
+    socket.on("game:podium", ({ leaderboard, showScores = false, showPlayerReport = false }) => {
+      clearInterval(timerInterval);
+      if (showPlayerReport) renderFinalLeaderboard(leaderboard, showScores);
+      else showScreen("report-locked-screen");
+    });
+    socket.on("game:report-locked", () => {
+      clearInterval(timerInterval);
+      showScreen("report-locked-screen");
+    });
+    socket.on("game:round-state", renderRoundState);
+    socket.on("game:buzzer-pressed", ({ nickname, position }) => {
+      if (nickname === currentNickname) document.getElementById("player-buzzer").disabled = true;
+      document.getElementById("buzzer-status").textContent = `${position}${position === 1 ? "st" : "nd"} buzzer: ${nickname}`;
+      const audio = document.getElementById("buzzer-sound");
+      if (audio?.readyState) audio.play().catch(() => showError("Buzzer sound playback failed. Check public/buzzer.mp3."));
+    });
+    socket.on("game:practical-question", ({ question, deadline }) => {
+      clearInterval(timerInterval);
+      document.getElementById("practical-question").textContent = question;
+      document.getElementById("practical-answer").value = "";
+      showScreen("practical-question-screen");
+      const updateTimer = () => {
+        const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        document.getElementById("practical-timer").textContent = String(remaining);
+        if (!remaining) clearInterval(timerInterval);
+      };
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 200);
+    });
+    socket.on("game:practical-result", ({ correct, points, showTotal }) => {
+      clearInterval(timerInterval);
+      document.getElementById("round-title").textContent = correct ? "Correct answer" : "No points changed";
+      document.getElementById("round-copy").textContent = correct
+        ? (points === undefined ? "Points are hidden by the administrator." : `${points} points awarded.`)
+        : "A wrong answer or timeout does not add or deduct points.";
+      showScreen("round-screen");
+    });
+    socket.on("game:buzzer-chance", ({ question, deadline, chance }) => {
+      clearInterval(timerInterval);
+      document.getElementById("buzzer-chance-question").textContent = `Chance ${chance}: ${question}`;
+      document.getElementById("buzzer-answer").value = "";
+      showScreen("buzzer-chance-screen");
+      const updateTimer = () => {
+        const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        document.getElementById("buzzer-chance-timer").textContent = String(remaining);
+        if (!remaining) clearInterval(timerInterval);
+      };
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 200);
     });
 
     socket.on("connect_error", (error) => {

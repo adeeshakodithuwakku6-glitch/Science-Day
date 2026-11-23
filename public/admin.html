@@ -38,6 +38,8 @@
           <button id="refresh-games" class="rounded-lg bg-slate-200 px-4 py-2 font-bold hover:bg-slate-300">Refresh</button>
         </div>
         <div id="game-list" class="mt-4 space-y-4"></div>
+        <h3 class="mt-8 text-xl font-black">Completed competition reports</h3>
+        <div id="report-list" class="mt-3 space-y-3"></div>
       </section>
 
       <section class="admin-toolbar mb-6 rounded-2xl p-5">
@@ -64,6 +66,36 @@
         </div>
       </div>
       <div id="question-list" class="space-y-5"></div>
+
+      <section class="admin-toolbar mt-8 rounded-2xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-black">Rapid Fire and Practical Quiz question banks</h2>
+            <p class="mt-1 text-slate-600">These banks are separate from the Quiz questions above. Games keep a snapshot of the saved content when created.</p>
+          </div>
+          <button id="save-round-banks" class="rounded-lg bg-emerald-700 px-4 py-3 font-bold text-white hover:bg-emerald-800">Save Round Question Banks</button>
+        </div>
+        <div class="mt-5 grid gap-6">
+          <section class="rounded-xl bg-white p-4 ring-1 ring-slate-200">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div><h3 class="text-xl font-black">Rapid Fire common questions</h3><p class="text-sm text-slate-600">Players answer one selected multiple-choice question together to establish the calling order.</p></div>
+              <button id="add-rapid-common" type="button" class="rounded-lg bg-purple-100 px-3 py-2 text-sm font-bold text-purple-900">+ Add common question</button>
+            </div>
+            <div id="rapid-common-list" class="mt-4 space-y-4"></div>
+            <label class="mt-5 block text-sm font-bold">Announcer prompts, one per line
+              <textarea id="rapid-announcer-questions" rows="5" maxlength="51000" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal"></textarea>
+            </label>
+          </section>
+          <section class="rounded-xl bg-white p-4 ring-1 ring-slate-200">
+            <h3 class="text-xl font-black">Practical Quiz themes</h3>
+            <p class="text-sm text-slate-600">Edit all ten themes. The active player chooses a theme, watches its optional video, then answers its private question.</p>
+            <div id="practical-theme-list" class="mt-4 grid gap-4 lg:grid-cols-2"></div>
+            <label class="mt-5 block text-sm font-bold">Buzzer questions, one per line
+              <textarea id="practical-buzzer-questions" rows="4" maxlength="51000" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal"></textarea>
+            </label>
+          </section>
+        </div>
+      </section>
     </section>
     <p id="notice" role="status" class="fixed bottom-5 left-1/2 z-10 hidden max-w-[90vw] -translate-x-1/2 rounded-xl px-5 py-3 font-bold text-white shadow-lg"></p>
   </main>
@@ -81,7 +113,14 @@
       <label class="block text-sm font-bold">Question
         <input data-field="question" maxlength="500" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal focus:border-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-100">
       </label>
+      <!-- Optional per-question artwork: use an HTTPS image URL or a file served from public/. -->
+      <label class="mt-4 block text-sm font-bold">Optional image URL or served file path
+        <input data-field="image" maxlength="2048" placeholder="https://... or /images/question.png" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal">
+      </label>
       <div class="options mt-4 grid gap-3 sm:grid-cols-2"></div>
+      <label class="mt-4 inline-flex items-center gap-2 text-sm font-bold">Points for a correct answer
+        <input data-field="points" type="number" min="1" max="1000000" step="1" value="20" class="w-28 rounded-lg border border-slate-300 px-3 py-2">
+      </label>
       <label class="mt-4 inline-flex items-center gap-2 text-sm font-bold">Time limit
         <select data-field="timeLimit" class="rounded-lg border border-slate-300 px-3 py-2">
           <option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option>
@@ -95,6 +134,7 @@
 
   <script>
     let questions = [];
+    let roundQuestionBanks = null;
     const list = document.getElementById("question-list");
 
     function showNotice(message, isError = false) {
@@ -116,8 +156,21 @@
       if (!response.ok) throw new Error(data.error || "Request failed.");
       return data;
     }
+    function createQuestionId() {
+      if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+      }
+      if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      }
+      return `question-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     function newQuestion() {
-      return { id: crypto.randomUUID(), question: "", options: ["", "", "", ""], correctIndex: 0, timeLimit: 20 };
+      return { id: createQuestionId(), question: "", options: ["", "", "", ""], correctIndex: 0, timeLimit: 20, points: 20, image: "" };
     }
     function readForm() {
       questions = [...list.querySelectorAll(".question-card")].map((card) => ({
@@ -125,7 +178,9 @@
         question: card.querySelector('[data-field="question"]').value.trim(),
         options: [...card.querySelectorAll('[data-field="option"]')].map((input) => input.value.trim()),
         correctIndex: Number(card.querySelector('input[type="radio"]:checked')?.value),
-        timeLimit: Number(card.querySelector('[data-field="timeLimit"]').value)
+        timeLimit: Number(card.querySelector('[data-field="timeLimit"]').value),
+        points: Number(card.querySelector('[data-field="points"]').value),
+        image: card.querySelector('[data-field="image"]').value.trim()
       }));
     }
     function renderQuestions() {
@@ -138,6 +193,8 @@
         prompt.value = question.question;
         prompt.placeholder = "Enter the question";
         card.querySelector('[data-field="timeLimit"]').value = String(question.timeLimit);
+        card.querySelector('[data-field="points"]').value = String(question.points || 20);
+        card.querySelector('[data-field="image"]').value = question.image || "";
         const options = card.querySelector(".options");
         question.options.forEach((option, optionIndex) => {
           const label = document.createElement("label");
@@ -171,6 +228,130 @@
         list.append(card);
       });
       document.getElementById("question-count").textContent = `${questions.length} question${questions.length === 1 ? "" : "s"} — click a field to edit`;
+    }
+
+    function bankField(labelText, value, field, maxLength = 500, required = true) {
+      const label = document.createElement("label");
+      label.className = "block text-sm font-bold";
+      label.append(document.createTextNode(labelText));
+      const input = document.createElement(field === "question" ? "textarea" : "input");
+      if (input.tagName === "TEXTAREA") input.rows = 2;
+      else input.type = "text";
+      input.maxLength = maxLength;
+      input.value = value || "";
+      input.dataset.bankField = field;
+      input.required = required;
+      input.className = "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal";
+      label.append(input);
+      return label;
+    }
+
+    function renderRoundQuestionBanks() {
+      const commonList = document.getElementById("rapid-common-list");
+      commonList.replaceChildren();
+      roundQuestionBanks.rapidFire.commonQuestions.forEach((question, index) => {
+        const card = document.createElement("article");
+        card.className = "rapid-common-card rounded-lg border border-slate-200 p-4";
+        card.dataset.id = question.id;
+        const heading = document.createElement("div");
+        heading.className = "mb-3 flex items-center justify-between";
+        const title = document.createElement("strong");
+        title.textContent = `Common question ${index + 1}`;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "rounded bg-red-100 px-3 py-1 text-sm font-bold text-red-800";
+        remove.textContent = "Delete";
+        remove.addEventListener("click", () => {
+          readRoundBankForm();
+          roundQuestionBanks.rapidFire.commonQuestions.splice(index, 1);
+          renderRoundQuestionBanks();
+        });
+        heading.append(title, remove);
+        card.append(heading, bankField("Question", question.question, "question"));
+        const options = document.createElement("div");
+        options.className = "mt-3 grid gap-2 sm:grid-cols-2";
+        question.options.forEach((option, optionIndex) => {
+          options.append(bankField(`Option ${optionIndex + 1}`, option, `option-${optionIndex}`, 200));
+        });
+        card.append(options);
+        const settings = document.createElement("div");
+        settings.className = "mt-3 flex flex-wrap gap-4";
+        const correctLabel = document.createElement("label");
+        correctLabel.className = "text-sm font-bold";
+        correctLabel.append(document.createTextNode("Correct option "));
+        const correct = document.createElement("select");
+        correct.dataset.bankField = "correctIndex";
+        correct.className = "ml-1 rounded border border-slate-300 px-2 py-1";
+        ["1", "2", "3", "4"].forEach((value, optionIndex) => {
+          const option = document.createElement("option");
+          option.value = String(optionIndex);
+          option.textContent = value;
+          option.selected = question.correctIndex === optionIndex;
+          correct.append(option);
+        });
+        correctLabel.append(correct);
+        const timeLabel = document.createElement("label");
+        timeLabel.className = "text-sm font-bold";
+        timeLabel.append(document.createTextNode("Time limit "));
+        const time = document.createElement("input");
+        time.type = "number";
+        time.min = "5";
+        time.max = "120";
+        time.step = "1";
+        time.value = String(question.timeLimit);
+        time.dataset.bankField = "timeLimit";
+        time.className = "ml-1 w-24 rounded border border-slate-300 px-2 py-1";
+        timeLabel.append(time, document.createTextNode(" seconds"));
+        settings.append(correctLabel, timeLabel);
+        card.append(settings, bankField("Optional image URL or public file path", question.image, "image", 2048, false));
+        commonList.append(card);
+      });
+
+      const themeList = document.getElementById("practical-theme-list");
+      themeList.replaceChildren();
+      roundQuestionBanks.practical.themes.forEach((theme, index) => {
+        const card = document.createElement("article");
+        card.className = "practical-theme-card rounded-lg border border-slate-200 p-4";
+        const title = document.createElement("h4");
+        title.className = "mb-3 font-black";
+        title.textContent = `Theme ${index + 1}`;
+        card.append(title,
+          bankField("Theme name", theme.name, "name", 60),
+          bankField("Video URL or public file path (optional)", theme.videoUrl, "videoUrl", 2048, false),
+          bankField("Question", theme.question, "question"),
+          bankField("Accepted answer", theme.answer, "answer", 200));
+        themeList.append(card);
+      });
+      document.getElementById("rapid-announcer-questions").value =
+        roundQuestionBanks.rapidFire.announcerQuestions.join("\n");
+      document.getElementById("practical-buzzer-questions").value =
+        roundQuestionBanks.practical.buzzerQuestions.join("\n");
+    }
+
+    function readRoundBankForm() {
+      const existingCommonQuestions = new Map(
+        roundQuestionBanks.rapidFire.commonQuestions.map((question) => [question.id, question])
+      );
+      roundQuestionBanks.rapidFire.commonQuestions = [...document.querySelectorAll(".rapid-common-card")].map((card) => ({
+        id: card.dataset.id,
+        question: card.querySelector('[data-bank-field="question"]').value.trim(),
+        options: [0, 1, 2, 3].map((index) => card.querySelector(`[data-bank-field="option-${index}"]`).value.trim()),
+        correctIndex: Number(card.querySelector('[data-bank-field="correctIndex"]').value),
+        timeLimit: Number(card.querySelector('[data-bank-field="timeLimit"]').value),
+        points: existingCommonQuestions.get(card.dataset.id)?.points || 20,
+        image: card.querySelector('[data-bank-field="image"]').value.trim()
+      }));
+      roundQuestionBanks.rapidFire.announcerQuestions =
+        document.getElementById("rapid-announcer-questions").value.split(/\r?\n/).map((text) => text.trim()).filter(Boolean);
+      roundQuestionBanks.practical.themes = [...document.querySelectorAll(".practical-theme-card")].map((card) => ({
+        name: card.querySelector('[data-bank-field="name"]').value.trim(),
+        videoUrl: card.querySelector('[data-bank-field="videoUrl"]').value.trim(),
+        question: card.querySelector('[data-bank-field="question"]').value.trim(),
+        answer: card.querySelector('[data-bank-field="answer"]').value.trim()
+      }));
+      roundQuestionBanks.practical.buzzerQuestions =
+        document.getElementById("practical-buzzer-questions").value.split(/\r?\n/).map((text) => text.trim()).filter(Boolean);
+      return roundQuestionBanks;
     }
 
     function renderUsers(users) {
@@ -232,7 +413,16 @@
         name.textContent = game.title;
         const meta = document.createElement("p");
         meta.className = "text-sm text-slate-600";
-        meta.textContent = `PIN ${game.pin} · ${game.players.length} players · ${game.status} · ${game.questionCount} questions`;
+        const orderNames = {
+          "rapid-fire": "Rapid Fire",
+          "main-quiz": "Quiz",
+          practical: "Practical Quiz"
+        };
+        const order = (game.roundOrder || ["rapid-fire", "main-quiz", "practical"])
+          .map((round) => orderNames[round])
+          .concat("Final Paper Marks")
+          .join(" → ");
+        meta.textContent = `PIN ${game.pin} · ${game.players.length} players · ${game.status} · ${game.questionCount} questions · ${order}`;
         title.append(name, meta);
         const actions = document.createElement("div");
         actions.className = "flex flex-wrap gap-2";
@@ -259,11 +449,16 @@
           });
           actions.append(deleteButton);
         }
+        const quizIndex = (game.roundOrder || ["rapid-fire", "main-quiz", "practical"]).indexOf("main-quiz");
+        const nextAfterQuiz = (game.roundOrder || ["rapid-fire", "main-quiz", "practical"])[quizIndex + 1];
+        const lastQuestionAction = nextAfterQuiz
+          ? `Continue to ${orderNames[nextAfterQuiz]} rules`
+          : "Continue to Final Paper Marks";
         const availableActions = {
           lobby: ["start", "Start"],
           question: ["pause", "Pause"],
           paused: ["resume", "Resume"],
-          review: ["next", game.currentQuestion >= game.questionCount ? "Show results" : "Next question"]
+          review: ["next", game.currentQuestion >= game.questionCount ? lastQuestionAction : "Next question"]
         };
         const action = availableActions[game.status];
         if (action) {
@@ -284,6 +479,23 @@
         }
         heading.append(title, actions);
         card.append(heading);
+        if (game.rapidQuestion) {
+          const questionsDetails = document.createElement("details");
+          questionsDetails.className = "mt-3 rounded-lg bg-slate-50 p-3";
+          const questionsSummary = document.createElement("summary");
+          questionsSummary.className = "cursor-pointer text-sm font-bold";
+          questionsSummary.textContent = "Admin-only question snapshot";
+          const questionText = document.createElement("pre");
+          questionText.className = "mt-2 overflow-x-auto whitespace-pre-wrap text-xs";
+          questionText.textContent = JSON.stringify({
+            rapidFireCommon: game.rapidQuestion,
+            rapidFireAnnouncer: game.rapidAnnouncerQuestions,
+            practicalThemes: game.practicalThemes,
+            practicalBuzzer: game.buzzerQuestions
+          }, null, 2);
+          questionsDetails.append(questionsSummary, questionText);
+          card.append(questionsDetails);
+        }
         if (game.leaderboard?.length) {
           const ranks = document.createElement("ol");
           ranks.className = "mt-3 grid gap-2 sm:grid-cols-2";
@@ -299,6 +511,218 @@
           });
           card.append(ranks);
         }
+        if (game.rapidOrder?.length) {
+          const order = document.createElement("p");
+          order.className = "mt-3 text-sm text-slate-600";
+          order.textContent = `Rapid Fire calling order: ${game.rapidOrder.map((player) => `${player.rank}. ${player.nickname}`).join(" · ")}`;
+          card.append(order);
+        }
+        if (game.rapidTurn) {
+          const remaining = Math.max(0, Math.ceil((game.rapidTurn.deadline - Date.now()) / 1000));
+          const turn = document.createElement("p");
+          turn.className = "mt-2 text-sm font-bold text-purple-800";
+          turn.textContent = `Current Rapid Fire turn: ${game.rapidTurn.nickname} · ${remaining}s remaining`;
+          card.append(turn);
+        }
+        const permissions = document.createElement("fieldset");
+        permissions.className = "mt-4 grid gap-2 rounded-xl bg-purple-50 p-4 sm:grid-cols-3";
+        permissions.innerHTML = "<legend class='px-1 text-sm font-black'>Live visibility permissions</legend>";
+        [
+          ["showQuizLeaderboardAndRanks", "Show quiz leaderboard and ranks"],
+          ["showTeamTotalToPlayers", "Show cumulative totals to players"],
+          ["showUserFinalReport", "Show player final report"]
+        ].forEach(([key, labelText]) => {
+          const label = document.createElement("label");
+          label.className = "flex items-start gap-2 text-sm font-semibold";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = Boolean(game.permissions?.[key]);
+          input.className = "mt-1 accent-purple-700";
+          input.addEventListener("change", async () => {
+            try {
+              await api(`/api/admin/games/${encodeURIComponent(game.pin)}/permissions`, {
+                method: "PATCH",
+                body: JSON.stringify({ [key]: input.checked })
+              });
+              await loadGames();
+              showNotice(`${labelText} ${input.checked ? "enabled" : "disabled"}.`);
+            } catch (error) {
+              input.checked = !input.checked;
+              showNotice(error.message, true);
+            }
+          });
+          label.append(input, document.createTextNode(labelText));
+          permissions.append(label);
+        });
+        card.append(permissions);
+
+        const controls = document.createElement("div");
+        controls.className = "mt-4 flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 p-3";
+        function addInput(labelText, value, type = "number") {
+          const label = document.createElement("label");
+          label.className = "text-xs font-bold";
+          label.append(document.createTextNode(labelText));
+          const input = document.createElement("input");
+          input.type = type;
+          input.value = String(value);
+          input.min = "0";
+          input.max = "1000000";
+          input.className = "mt-1 block w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm";
+          label.append(input);
+          controls.append(label);
+          return input;
+        }
+        function addSelect(labelText, options) {
+          const label = document.createElement("label");
+          label.className = "text-xs font-bold";
+          label.append(document.createTextNode(labelText));
+          const select = document.createElement("select");
+          select.className = "mt-1 block max-w-xs rounded-lg border border-slate-300 px-2 py-2 text-sm";
+          options.forEach((value) => {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = value;
+            select.append(option);
+          });
+          label.append(select);
+          controls.append(label);
+          return select;
+        }
+        function addAction(action, labelText, body = {}, inputs = []) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800";
+          button.textContent = labelText;
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+              const payload = { ...body };
+              inputs.forEach(({ key, input }) => {
+                if (input.type === "number") payload[key] = Number(input.value);
+                else payload[key] = input.value;
+              });
+              await api(`/api/admin/games/${encodeURIComponent(game.pin)}/${action}`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+              });
+              await loadGames();
+              showNotice("Competition updated.");
+            } catch (error) {
+              showNotice(error.message, true);
+            } finally {
+              button.disabled = false;
+            }
+          });
+          controls.append(button);
+        }
+        if (game.status === "rapid-rules") addAction("rapid-common", "Start common question");
+        if (game.status === "rapid-turns") {
+          const duration = addInput("Turn seconds", 30);
+          addAction("rapid-turn", "Start next Rapid Fire turn", {}, [{ key: "duration", input: duration }]);
+        }
+        if (game.status === "rapid-turn") {
+          const count = addInput("Questions answered", 0);
+          const each = addInput("Points per question", 5);
+          const manual = addInput("Manual bonus", 0);
+          addAction("rapid-turn-finish", "Finish turn and score", {}, [
+            { key: "answeredCount", input: count }, { key: "pointsPerQuestion", input: each }, { key: "manualPoints", input: manual }
+          ]);
+        }
+        if (game.status === "quiz-rules") addAction("quiz-start", "Start Main Quiz");
+        if (game.status === "practical-rules") {
+          const points = addInput("Practical points", game.practicalPoints || 20);
+          const duration = addInput("Question seconds", game.practicalTimeLimit || 20);
+          addAction("practical-start", "Start practical stage", {}, [
+            { key: "points", input: points }, { key: "timeLimit", input: duration }
+          ]);
+        }
+        if (game.status === "practical-theme") {
+          const note = document.createElement("p");
+          note.className = "text-sm font-semibold text-slate-600";
+          note.textContent = `Waiting for ${game.players.find((player) => player.id === game.rapidOrder?.[game.practicalIndex]?.id)?.nickname || "the active participant"} to choose a theme.`;
+          controls.append(note);
+        }
+        if (game.status === "practical-video") addAction("practical-video-next", "End video and ask question");
+        if (game.status === "buzzer-ready" && game.buzzer.status === "waiting") {
+          const question = addSelect("Buzzer question", game.buzzerQuestions || []);
+          const duration = addInput("Buzz window (seconds)", 20);
+          addAction("buzzer-start", "Open buzzer", {}, [{ key: "question", input: question }, { key: "duration", input: duration }]);
+        }
+        if (game.status === "buzzer") addAction("buzzer-close", "Close buzzer");
+        if (game.status === "buzzer-ready" && game.buzzer.queue.length && game.buzzer.status !== "chance") {
+          const duration = addInput("Chance seconds", 20);
+          addAction("buzzer-chance", `Grant ${game.buzzer.chanceIndex + 2}${game.buzzer.chanceIndex < 0 ? "st" : "nd"} chance`, {}, [{ key: "duration", input: duration }]);
+        }
+        if (game.status === "buzzer-ready" && game.buzzer.status === "chance") {
+          const response = document.createElement("p");
+          response.className = "w-full text-sm font-bold";
+          response.textContent = game.buzzer.pendingResponse ? `Answer: ${game.buzzer.pendingResponse}` : "Waiting for spoken answer or timeout.";
+          controls.append(response);
+          const points = addInput("Manual points", 20);
+          addAction("buzzer-resolve", "Mark correct and award points", { correct: true }, [{ key: "points", input: points }]);
+          addAction("buzzer-resolve", "Mark wrong (no points)", { correct: false, points: 0 });
+        }
+        const canContinuePractical = game.status === "buzzer-results" ||
+          (game.status === "buzzer-ready" && game.buzzer.queue.length === 0 &&
+            ["closed", "ready"].includes(game.buzzer.status));
+        if (canContinuePractical) {
+          const practicalIndex = (game.roundOrder || ["rapid-fire", "main-quiz", "practical"]).indexOf("practical");
+          const nextRound = (game.roundOrder || ["rapid-fire", "main-quiz", "practical"])[practicalIndex + 1];
+          if (nextRound) {
+            addAction("round-next", `Continue to ${orderNames[nextRound]}`);
+          } else {
+            addAction("paper-start", "Enter Final Paper Marks");
+          }
+        }
+        if (game.status === "paper-marks") {
+          const marksByPlayer = game.players.map((player) => {
+            const label = document.createElement("label");
+            label.className = "text-xs font-bold";
+            label.textContent = `${player.nickname} paper marks`;
+            const input = document.createElement("input");
+            input.type = "number";
+            input.min = "0";
+            input.max = "1000000";
+            input.step = "1";
+            input.required = true;
+            input.value = "0";
+            input.dataset.playerId = player.id;
+            input.className = "mt-1 block w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm";
+            label.append(input);
+            controls.append(label);
+            return input;
+          });
+          const submitMarks = document.createElement("button");
+          submitMarks.type = "button";
+          submitMarks.className = "rounded-lg bg-purple-700 px-3 py-2 text-sm font-bold text-white hover:bg-purple-800";
+          submitMarks.textContent = "Add marks to total";
+          submitMarks.addEventListener("click", async () => {
+            if (marksByPlayer.some((input) => !input.reportValidity())) return;
+            submitMarks.disabled = true;
+            try {
+              await api(`/api/admin/games/${encodeURIComponent(game.pin)}/paper-submit`, {
+                method: "POST",
+                body: JSON.stringify({
+                  marks: marksByPlayer.map((input) => ({
+                    playerId: input.dataset.playerId,
+                    marks: Number(input.value)
+                  }))
+                })
+              });
+              await loadGames();
+              showNotice("Paper Marks were added to each total.");
+            } catch (error) {
+              showNotice(error.message, true);
+            } finally {
+              submitMarks.disabled = false;
+            }
+          });
+          controls.append(submitMarks);
+        }
+        if (game.status === "paper-results") {
+          addAction("finish", "Publish Final Leaderboard");
+        }
+        card.append(controls);
         container.append(card);
       });
       if (!games.length) container.textContent = "There are no ongoing games. Create a game from the host panel.";
@@ -306,6 +730,24 @@
 
     async function loadGames() {
       renderGames(await api("/api/admin/games"));
+    }
+    async function loadReports() {
+      const reports = await api("/api/admin/reports");
+      const container = document.getElementById("report-list");
+      container.replaceChildren();
+      reports.forEach((item) => {
+        const details = document.createElement("details");
+        details.className = "rounded-xl bg-white p-4 ring-1 ring-slate-200";
+        const summary = document.createElement("summary");
+        summary.className = "cursor-pointer font-bold";
+        summary.textContent = `${item.title} · PIN ${item.pin} · ${item.endedAt || "Complete"}`;
+        const content = document.createElement("pre");
+        content.className = "mt-3 overflow-x-auto whitespace-pre-wrap text-xs";
+        content.textContent = JSON.stringify(item.report, null, 2);
+        details.append(summary, content);
+        container.append(details);
+      });
+      if (!reports.length) container.textContent = "Completed reports appear here when a competition is finished.";
     }
 
     document.getElementById("logout").addEventListener("click", async () => {
@@ -319,8 +761,13 @@
     });
     document.getElementById("add-question").addEventListener("click", () => {
       readForm();
+      if (questions.length >= 500) {
+        showNotice("You can add up to 500 questions.", true);
+        return;
+      }
       questions.push(newQuestion());
       renderQuestions();
+      list.lastElementChild?.querySelector('[data-field="question"]').focus();
       list.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
     document.getElementById("save-all").addEventListener("click", async () => {
@@ -332,8 +779,46 @@
         showNotice(error.message, true);
       }
     });
+    document.getElementById("add-rapid-common").addEventListener("click", () => {
+      readRoundBankForm();
+      if (roundQuestionBanks.rapidFire.commonQuestions.length >= 100) {
+        showNotice("You can add up to 100 Rapid Fire common questions.", true);
+        return;
+      }
+      roundQuestionBanks.rapidFire.commonQuestions.push({
+        id: createQuestionId(),
+        question: "",
+        options: ["", "", "", ""],
+        correctIndex: 0,
+        timeLimit: 20,
+        points: 20,
+        image: ""
+      });
+      renderRoundQuestionBanks();
+      document.querySelector(".rapid-common-card:last-child [data-bank-field='question']")?.focus();
+    });
+    document.getElementById("save-round-banks").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      readRoundBankForm();
+      button.disabled = true;
+      try {
+        await api("/api/round-question-banks", {
+          method: "POST",
+          body: JSON.stringify(roundQuestionBanks)
+        });
+        showNotice("Rapid Fire and Practical Quiz question banks saved.");
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
     document.getElementById("refresh-games").addEventListener("click", () => loadGames().catch((error) => showNotice(error.message, true)));
     document.getElementById("refresh-users").addEventListener("click", () => loadUsers().catch((error) => showNotice(error.message, true)));
+    setInterval(() => {
+      if (document.activeElement?.matches("input, select, textarea")) return;
+      Promise.all([loadGames(), loadReports()]).catch((error) => showNotice(error.message, true));
+    }, 2500);
     api("/api/auth/me")
       .then(({ user }) => {
         if (user.role !== "admin") {
@@ -346,10 +831,12 @@
         const name = document.getElementById("admin-name");
         name.textContent = user.name.trim().split(/\s+/)[0];
         name.href = "/";
-        return api("/api/questions").then((savedQuestions) => {
+        return Promise.all([api("/api/questions"), api("/api/round-question-banks")]).then(([savedQuestions, banks]) => {
           questions = savedQuestions;
+          roundQuestionBanks = banks;
           renderQuestions();
-          return Promise.all([loadUsers(), loadGames()]);
+          renderRoundQuestionBanks();
+          return Promise.all([loadUsers(), loadGames(), loadReports()]);
         });
       })
       .catch((error) => {

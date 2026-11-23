@@ -31,11 +31,31 @@ npm start
 
 Sign-in uses an HTTP-only, SameSite session cookie. Sessions expire after 12 hours or when the server restarts. Admin pages, Socket.IO host actions, and question-management APIs enforce the admin role on the server. Failed login and registration attempts are rate-limited. Use HTTPS for public hosting; the deployment example below terminates TLS at Nginx.
 
-## Questions
+## Questions and rounds
 
-The admin panel supports adding, editing, reordering, and deleting questions. Changes are saved to `questions.json`. Each question has a unique `id`, a `question`, four `options`, a zero-based `correctIndex`, and a `timeLimit` from 5 to 120 seconds. On the host screen, admins choose a set of questions for a game, set its title and scoring values, create the game, and receive its PIN in the live lobby. The admin panel manages player/admin roles and lists only ongoing games, with controls to start, pause, resume, advance, or delete them. Deleting a game ends its live room and permanently removes its saved history. The final host screen shows the top three podium followed by the full ranked leaderboard. Games snapshot their selected questions when created.
+The Admin Panel keeps three question banks separate:
 
-Players must be signed in to join with a PIN. They choose a 1–30 character nickname shown in the lobby and rankings; nicknames must be unique within each game. The browser remembers the last nickname to make rejoining easier. Each game has a configurable starting score, maximum correct-answer points (`n1`), and wrong-answer penalty (`n2`). A correct answer earns `n1` points in the first second, then one fewer point for each additional active second, down to zero; for example, with 20 maximum points, answers in seconds 1, 2, and 3 earn 20, 19, and 18 points. An incorrect answer deducts `n2`, clamped so scores never fall below zero. An unanswered question does not change the score. Time spent paused is excluded from both answer-time scoring and the question timer. Rankings include every participant and remain available in the admin panel after a game ends. If the server restarts during a game, that game is marked interrupted in the saved history; active gameplay itself is held in memory and does not resume.
+- **Quiz** questions are stored in `questions.json`. Each has a unique `id`, question text, four options, a zero-based `correctIndex`, a `timeLimit` from 5 to 120 seconds, and a maximum correct-answer `points` value. An optional image can be a served file path (for example `/images/diagram.png`) or an HTTPS URL.
+- **Rapid Fire** common questions and announcer prompts, plus all **Practical Quiz** themes, prompts/answers, optional video URLs, and buzzer questions are stored in `round-question-banks.json`. Edit them in the Admin Panel under “Rapid Fire and Practical Quiz question banks.” The Rapid Fire setup screen lets the Host choose which common multiple-choice question to use for a game.
+
+Leave an optional image or video URL blank when no media is needed. Use files served from `public/` (for example `/videos/space.mp4`) or HTTPS media URLs. Exactly ten uniquely named Practical Quiz themes are required. Games snapshot their selected Rapid Fire question, announcer prompts, Practical themes, and buzzer questions when created; later bank edits apply only to new games.
+
+When creating a game, the Admin chooses the order of the three required rounds using the up/down controls on the Host setup screen and can edit the rules text shown to Host and Players at the start of each round. Practical Quiz must remain after Rapid Fire because its individual calling order comes from the Rapid Fire leaderboard. Paper Marks are always the final scoring step. The default order is:
+
+1. **Rapid Fire:** all players answer the selected Rapid Fire common question at once. Correctness and response time establish the calling order. The Admin Panel steps through that order; use the configured announcer prompts, set each turn duration, record the number of questions answered and points per question, and add an optional manual bonus. The server calculates the turn score as `answered count × points per question + manual bonus`.
+2. **Quiz:** each question has its own time and maximum points. A correct answer scores `max(1, question points - elapsed active seconds + 1)`, so a 20-point question awards 20 in the first second, 19 in the second, and so on. Wrong answers and timeouts use the same fixed game penalty (`n2`), clamped so a score never falls below zero. Paused time is excluded.
+3. **Practical Quiz:** players choose one of ten themes in Rapid Fire order, watch its video together, then answer a private timed question. Correct answers receive the configured practical points; wrong answers/timeouts do not change totals. Next, the Admin opens a common buzzer question and grants chances to the first two presses in order. A correct first answer ends the buzzer round; otherwise the second can be granted. Buzzer awards are entered manually.
+After each selected round is complete, the next round's rules screen is shown to Host and Players; the Admin starts it from the Admin Panel. When all three rounds are complete, **Final Paper Marks** opens automatically (or after the Practical buzzer results if Practical is last). The Admin enters one nonnegative whole-number mark value for every participant. Submitting the marks adds each value to that participant's cumulative score once. The Admin can then publish the final overall leaderboard.
+
+The Practical Quiz video stage advances after about 30 seconds, or the active player can advance it when playback ends. To add a custom buzzer sound, place an audio file at `public/buzzer.mp3`; both Host and Player screens use that placeholder. The `round-question-banks.json` file is the starter/configuration data for the separate round question banks and can be backed up or edited directly; the Admin Panel is the recommended editor.
+
+Three per-game Admin Panel permissions update Host and Player screens live:
+
+- **Show quiz leaderboard and ranks** controls the Main Quiz ranking at review: ranks 1–3 and every remaining rank appear when enabled.
+- **Show cumulative totals to players** controls public score totals and awarded-point details; scoring always continues in the background, and Admin can always inspect the complete breakdown privately.
+- **Show player final report** unlocks the Player final report. The Host final leaderboard and Admin report remain available regardless.
+
+Players join with the six-digit PIN or QR code and select a 1–30 character nickname/team identifier. Their account ID keeps that team/user identity stable across all rounds. The homepage lists the available competition stages and polls `/api/events` for active games, including each game's selected round order; a PIN is publicly included only while its game is still in the lobby. The Admin Panel keeps live standings, mark entry, and turn controls available during the competition and archives the final round-by-round report after it finishes. If the server restarts during a game, that game is marked interrupted in saved history; active gameplay is held in memory and does not resume.
 
 ## Deploy on a VPS
 
@@ -76,7 +96,20 @@ Then validate/reload Nginx and use Certbot to enable HTTPS. The QR code on the h
 
 ## Event-day checks
 
-- Add and verify the final questions in the admin panel.
-- Test joining, answer lock-in, scoring, review, and final podium with several devices.
+- Add and verify the Rapid Fire common question and announcer prompts, Quiz questions, all ten Practical themes/video URLs, and buzzer questions in their separate Admin Panel sections.
+- On the Host setup screen, select the Rapid Fire common question and use the round-order controls to set the required round order. Practical Quiz cannot be moved ahead of Rapid Fire.
+- Test a non-default legal order (for example Quiz → Rapid Fire → Practical Quiz), confirm each rules screen appears only after the previous round completes, and verify Practical still follows the Rapid Fire calling order.
+- Put practical theme video files under `public/` and add their served paths or HTTPS URLs in the Practical Quiz question bank; if desired, put a custom buzzer sound at `public/buzzer.mp3`.
+- Test PIN and QR joining, Rapid Fire rules/order/turn scoring, Quiz speed scoring and fixed penalties, Practical Quiz theme/video/private question, first-two buzzer flow, Paper Marks entry, and final publication with several devices.
+- Toggle each visibility permission during a live game and verify Host and Player screens update immediately. Check that Admin standings and the archived report still contain full totals.
 - Open the host screen on the projector computer and check the PIN and QR code are readable.
 - Keep the server running for the duration of the event; active game rooms are not persisted across restarts, although their interrupted status and results up to the restart are saved.
+
+For PM2, deploy the updated files and restart with the existing environment:
+
+```sh
+pm2 restart science-quiz --update-env
+pm2 logs science-quiz
+```
+
+Run the same event-day checks against the deployed URL, using separate devices/accounts for Host and Players.

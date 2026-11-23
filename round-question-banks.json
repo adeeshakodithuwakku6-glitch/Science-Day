@@ -1,0 +1,37 @@
+{
+  "rapidFire": {
+    "commonQuestions": [
+      {
+        "id": "rapid-common-1",
+        "question": "Which planet is known as the Red Planet?",
+        "options": ["Venus", "Mars", "Jupiter", "Mercury"],
+        "correctIndex": 1,
+        "timeLimit": 20,
+        "points": 20,
+        "image": ""
+      }
+    ],
+    "announcerQuestions": [
+      "What is the chemical symbol for water?",
+      "Which gas do plants absorb during photosynthesis?",
+      "What force pulls objects toward Earth?"
+    ]
+  },
+  "practical": {
+    "themes": [
+      { "name": "Space", "videoUrl": "", "question": "Which planet is known as the Red Planet?", "answer": "Mars" },
+      { "name": "Chemistry", "videoUrl": "", "question": "What is the chemical symbol for water?", "answer": "H2O" },
+      { "name": "Plants", "videoUrl": "", "question": "Which gas do plants absorb during photosynthesis?", "answer": "Carbon dioxide" },
+      { "name": "Human Body", "videoUrl": "", "question": "Which organ pumps blood around the body?", "answer": "Heart" },
+      { "name": "Energy", "videoUrl": "", "question": "What is the SI unit of energy?", "answer": "Joule" },
+      { "name": "Earth Science", "videoUrl": "", "question": "What is the outermost solid layer of Earth called?", "answer": "Crust" },
+      { "name": "Forces", "videoUrl": "", "question": "What force pulls objects toward Earth?", "answer": "Gravity" },
+      { "name": "Electricity", "videoUrl": "", "question": "What is the unit of electric current?", "answer": "Ampere" },
+      { "name": "Animals", "videoUrl": "", "question": "What do we call animals that eat only plants?", "answer": "Herbivores" },
+      { "name": "Matter", "videoUrl": "", "question": "What is the change from liquid to gas called?", "answer": "Evaporation" }
+    ],
+    "buzzerQuestions": [
+      "What is the chemical symbol for oxygen?"
+    ]
+  }
+}
