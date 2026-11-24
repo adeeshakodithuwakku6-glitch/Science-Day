@@ -48,6 +48,10 @@
         return;
       }
       const pin = localStorage.getItem("scienceQuizPin");
+      if (user.role === "shower") {
+        window.location.replace(/^\d{6}$/.test(pin || "") ? `/display.html?pin=${encodeURIComponent(pin)}` : "/display.html");
+        return;
+      }
       window.location.replace(/^\d{6}$/.test(pin || "") ? `/play.html?pin=${encodeURIComponent(pin)}` : "/");
     }
 

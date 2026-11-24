@@ -16,6 +16,54 @@
     .answer:nth-child(2) { background: #1368ce; }
     .answer:nth-child(3) { background: #d89e00; }
     .answer:nth-child(4) { background: #26890c; }
+    body.display-mode .host-app { max-width: none; padding: 1rem; }
+    body.display-mode .host-header nav,
+    body.display-mode #start-screen,
+    body.display-mode #rapid-turn-controls,
+    body.display-mode #rapid-score-controls,
+    body.display-mode #rapid-turn-duration,
+    body.display-mode #round-themes,
+    body.display-mode #practical-admin,
+    body.display-mode #paper-mark-entry,
+    body.display-mode #next-round,
+    body.display-mode #publish-final-ranks,
+    body.display-mode #pause-game,
+    body.display-mode #next-question,
+    body.display-mode #play-again { display: none !important; }
+    body.display-mode #start-game { display: none !important; }
+    body.display-mode #round-screen { max-width: none; min-height: 75vh; }
+    body.display-mode #round-title { font-size: clamp(2.5rem, 6vw, 6rem); }
+    body.display-mode #round-copy { font-size: clamp(1.25rem, 3vw, 2.5rem); }
+    body.display-mode #round-active,
+    body.display-mode #round-chooser,
+    body.display-mode #practical-spot { font-size: clamp(1.25rem, 3vw, 2.5rem); }
+    body.display-mode #round-timer { font-size: clamp(5rem, 15vw, 12rem); }
+    body.display-mode #question-screen,
+    body.display-mode #review-screen,
+    body.display-mode #podium-screen { font-size: clamp(1.15rem, 2vw, 2rem); }
+    body.display-mode #question-text { font-size: clamp(2.5rem, 6vw, 6rem); }
+    body.display-mode #display-exit { display: block; }
+    #paper-game-end:not(.hidden) { animation: end-card-in .7s cubic-bezier(.2,.8,.2,1) both; }
+    body.display-mode #paper-game-end { width: min(92vw, 90rem); max-width: none; padding-block: clamp(3rem, 12vh, 8rem); }
+    body.display-mode #podium-screen:not(.hidden) { min-height: 90vh; display: flex; flex-direction: column; justify-content: center; }
+    body.display-mode #final-leaderboard { max-height: none; overflow: visible; }
+    body.shower-mode .host-header nav,
+    body.shower-mode #start-screen,
+    body.shower-mode #display-mode-open,
+    body.shower-mode #display-exit,
+    body.shower-mode #pause-game,
+    body.shower-mode #next-question,
+    body.shower-mode #start-game,
+    body.shower-mode #rapid-score-controls,
+    body.shower-mode #practical-admin,
+    body.shower-mode #paper-mark-entry,
+    body.shower-mode #publish-final-ranks,
+    body.shower-mode #next-round,
+    body.shower-mode #play-again { display: none !important; }
+    body.shower-mode .host-app button { display: none !important; }
+    body.shower-mode #round-video-play { display: block !important; }
+    body.shower-mode #host-error:not(.hidden) { display: flex !important; }
+    @keyframes end-card-in { from { opacity: 0; transform: translateY(18px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
   </style>
 </head>
 <body class="quiz-stage min-h-screen text-white">
@@ -26,6 +74,7 @@
         <h1 class="text-4xl font-black md:text-5xl">MRCM Quiz Host</h1>
       </div>
       <nav class="host-nav flex flex-wrap gap-2" aria-label="Main navigation">
+        <button id="display-mode-open" type="button" class="host-nav-button rounded-xl px-4 py-2 font-bold">Open Display Screen</button>
         <a href="/" class="host-nav-button rounded-xl px-4 py-2 font-bold">Home</a>
         <a href="/admin.html" class="host-nav-button rounded-xl px-4 py-2 font-bold">Admin panel</a>
       </nav>
@@ -116,17 +165,79 @@
     </section>
 
     <section id="round-screen" class="host-card hidden mx-auto max-w-4xl rounded-3xl bg-white p-8 text-center text-slate-900">
+      <div id="paper-game-end" class="game-end-card hidden mx-auto max-w-3xl px-8 py-12 sm:px-14 sm:py-16">
+        <div class="game-end-icon mx-auto" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none"><path d="M15 8h18v8c0 8-4 13-9 13s-9-5-9-13V8Z" stroke="currentColor" stroke-width="2.5"/><path d="M15 12H8v4c0 6 3 9 9 9M33 12h7v4c0 6-3 9-9 9M24 29v8m-9 4h18m-17-4h16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <p class="game-end-kicker mt-7">Science Day · Competition complete</p>
+        <h2 class="game-end-title mt-3">Game End</h2>
+        <p class="game-end-message mx-auto mt-5 max-w-2xl">Thank you for taking part. Please stay with us for the final results.</p>
+        <div class="game-end-status mx-auto mt-8"><span></span> Final standings coming up</div>
+      </div>
       <p id="round-label" class="text-sm font-bold uppercase tracking-widest text-purple-700"></p>
       <h2 id="round-title" class="mt-2 text-3xl font-black"></h2>
       <p id="round-copy" class="mx-auto mt-4 max-w-3xl text-lg leading-relaxed text-slate-600"></p>
       <p id="round-active" class="mt-5 text-xl font-black text-purple-900"></p>
-      <p id="round-timer" class="mt-2 text-2xl font-black text-purple-700"></p>
+      <p id="round-chooser" class="mt-2 hidden text-lg font-bold text-emerald-800"></p>
+      <p id="practical-spot" class="mt-1 hidden text-lg font-bold text-slate-700"></p>
+      <div id="round-timer-wrap" class="mx-auto mt-6 hidden w-fit text-center">
+        <p class="text-sm font-black uppercase tracking-widest text-purple-700">Time left</p>
+        <p id="round-timer" class="rounded-3xl bg-purple-50 px-8 py-3 text-7xl font-black tabular-nums text-purple-700 shadow-lg sm:text-8xl md:text-9xl"></p>
+      </div>
+      <div id="rapid-turn-controls" class="mx-auto mt-5 hidden max-w-xl">
+        <label class="inline-flex items-center gap-3 text-sm font-bold text-slate-700" for="rapid-turn-duration">
+          Turn duration
+          <input id="rapid-turn-duration" type="number" min="5" max="600" step="1" value="30" class="w-24 rounded-lg border border-slate-300 px-3 py-2 text-center text-lg">
+          seconds
+        </label>
+        <p class="mt-3 text-sm text-slate-600">Click the next participant's name to start their turn.</p>
+      </div>
       <ol id="rapid-order" class="mx-auto mt-5 max-w-xl space-y-2 text-left"></ol>
+      <div id="rapid-score-controls" class="mx-auto mt-6 hidden max-w-xl rounded-2xl bg-purple-50 p-5 text-left">
+        <h3 class="text-xl font-black text-purple-900">Record Rapid Fire marks</h3>
+        <p class="mt-1 text-sm text-slate-600">Enter marks after the timer reaches zero.</p>
+        <div class="mt-4">
+          <label class="block text-sm font-bold" for="rapid-marks">Marks
+            <input id="rapid-marks" type="number" min="0" max="1000000" step="1" value="0" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2">
+          </label>
+        </div>
+        <button id="rapid-score-submit" type="button" disabled class="mt-4 w-full rounded-xl bg-emerald-700 px-5 py-3 font-extrabold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">Insert marks</button>
+      </div>
       <div id="round-themes" class="mt-5 flex flex-wrap justify-center gap-2"></div>
-      <div id="round-video-wrap" class="mx-auto mt-5 hidden max-w-3xl">
-        <video id="round-video" class="w-full rounded-2xl bg-black" controls playsinline></video>
+      <div id="round-video-wrap" class="relative mx-auto mt-5 hidden max-w-3xl">
+        <video id="round-video" class="w-full rounded-2xl bg-black" playsinline></video>
+        <iframe id="round-video-frame" class="hidden aspect-video w-full rounded-2xl bg-black" title="Practical quiz video" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        <button id="round-video-play" type="button" class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-700 px-6 py-3 font-black text-white shadow-lg">Play video</button>
       </div>
       <ol id="round-queue" class="mx-auto mt-5 max-w-xl space-y-2 text-left"></ol>
+      <section id="practical-admin" class="mx-auto mt-6 hidden max-w-2xl rounded-2xl border-2 border-dashed border-purple-300 bg-purple-50 p-4 text-left">
+        <p class="text-xs font-black uppercase tracking-widest text-purple-700">Admin only · recording panel</p>
+        <p id="practical-admin-countdown" class="mt-2 hidden text-lg font-black tabular-nums text-red-700"></p>
+        <div id="practical-spotlight" class="mt-2 space-y-1 text-slate-700"></div>
+        <div id="practical-timing" class="mt-3 flex flex-wrap items-end gap-2"></div>
+        <p id="practical-timing-status" role="status" aria-live="polite" class="mt-2 hidden text-sm font-bold text-emerald-800"></p>
+        <div id="practical-outcomes" class="mt-3 flex flex-wrap items-center gap-2"></div>
+        <p id="practical-expected" class="mt-3 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-purple-200"></p>
+        <div id="practical-chance" class="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-purple-200">
+          <p class="font-black text-purple-900">Buzzer · first <span id="practical-chance-count">0</span> of 2 places taken</p>
+          <ol id="practical-chance-list" class="mt-1 space-y-1"></ol>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button id="practical-reveal" type="button" class="rounded-xl bg-slate-700 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800">Show details</button>
+          <button id="practical-admin-next" type="button" class="hidden rounded-xl bg-emerald-600 px-5 py-2 text-sm font-extrabold text-white hover:bg-emerald-700">Next</button>
+        </div>
+      </section>
+      <button id="next-round" type="button" class="mt-6 hidden w-full rounded-xl bg-emerald-600 px-6 py-4 text-xl font-extrabold text-white hover:bg-emerald-700">Next</button>
+      <button id="publish-final-ranks" type="button" class="mt-3 hidden w-full rounded-xl bg-purple-700 px-6 py-4 text-xl font-extrabold text-white hover:bg-purple-800">Show Final Marks &amp; Ranks</button>
+      <section id="paper-mark-entry" class="paper-mark-card mx-auto mt-8 hidden max-w-3xl rounded-2xl p-5 text-left">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><p class="text-xs font-black uppercase tracking-widest text-amber-800">Admin only · private entry</p><h3 class="mt-1 text-2xl font-black text-slate-900">Final Paper Marks</h3></div>
+          <span class="paper-private-badge"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3.5" y="8" width="13" height="9" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M6.5 8V6a3.5 3.5 0 1 1 7 0v2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg> Private entry</span>
+        </div>
+        <p class="mt-2 text-sm text-slate-600">Enter each participant’s paper score. Marks stay private until you show the final results.</p>
+        <div id="paper-mark-fields" class="mt-4 grid gap-3 sm:grid-cols-2"></div>
+        <button id="paper-mark-submit" type="button" class="mt-5 w-full rounded-xl bg-amber-700 px-5 py-3 font-extrabold text-white hover:bg-amber-800 disabled:opacity-50">Save marks and prepare final results</button>
+      </section>
     </section>
 
     <section id="question-screen" class="hidden">
@@ -155,39 +266,102 @@
           <h3 class="text-2xl font-black">Answer distribution</h3>
           <div id="distribution" class="mt-5 space-y-4"></div>
         </div>
-        <div class="review-card rounded-3xl bg-white p-6 text-slate-900">
-          <h3 class="text-2xl font-black">Leaderboard</h3>
-          <ol id="leaderboard" class="mt-4 space-y-3"></ol>
+        <div class="review-card overflow-hidden rounded-3xl bg-gradient-to-br from-white via-purple-50 to-indigo-50 p-6 text-slate-900 shadow-xl ring-1 ring-white/70">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-2xl font-black">Leaderboard</h3>
+            <span class="rounded-full bg-purple-100 px-3 py-1 text-xs font-black uppercase tracking-wider text-purple-800">Live standings</span>
+          </div>
+          <ol id="leaderboard" class="mt-5 space-y-3"></ol>
         </div>
       </div>
       <button id="next-question" class="mt-6 w-full rounded-xl bg-emerald-600 px-6 py-4 text-xl font-extrabold text-white hover:bg-emerald-700"></button>
     </section>
 
     <section id="podium-screen" class="hidden">
-      <div class="text-center">
+      <div class="final-results-hero text-center">
+        <span class="final-results-kicker"><span></span> Science Day · Official results</span>
         <p class="text-6xl">🏆</p>
-        <h2 class="mt-3 text-5xl font-black">Game over!</h2>
+        <h2 class="mt-2 text-5xl font-black">Final rankings</h2>
       </div>
-      <div id="podium" class="mx-auto mt-8 grid max-w-4xl grid-cols-1 items-end gap-4 sm:grid-cols-3"></div>
-      <div class="mx-auto mt-8 max-w-4xl rounded-2xl bg-white p-6 text-slate-900">
-        <h3 class="text-2xl font-black">Full rankings</h3>
+      <p class="final-results-subtitle mx-auto mt-3 max-w-2xl text-center">Congratulations to everyone who took part. Here are the final scores and paper marks.</p>
+      <div id="podium" class="podium mx-auto mt-8 grid max-w-5xl grid-cols-1 items-end gap-4 sm:grid-cols-3"></div>
+      <p id="final-rank-reveal-note" class="final-rank-reveal-note hidden">Full rankings are next</p>
+      <div class="final-rankings-panel mx-auto mt-10 max-w-5xl rounded-3xl p-5 text-slate-900 sm:p-7">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p class="final-rankings-kicker">Final standings</p>
+            <h3 class="mt-1 text-2xl font-black sm:text-3xl">Every participant</h3>
+          </div>
+          <span id="final-count" class="final-count-badge"></span>
+        </div>
         <ol id="final-leaderboard" class="mt-4 max-h-96 space-y-2 overflow-y-auto"></ol>
       </div>
       <button id="play-again" class="mx-auto mt-8 block rounded-xl bg-white px-8 py-4 text-xl font-extrabold text-purple-900 hover:bg-purple-100">Play Again</button>
     </section>
   </main>
-  <!-- Drop a custom buzzer sound file at public/buzzer.mp3 to enable local playback. -->
-  <audio id="buzzer-sound" src="/buzzer.mp3" preload="auto"></audio>
+  <button id="display-exit" type="button" class="fixed right-4 top-4 z-50 hidden rounded-full bg-slate-950/80 px-4 py-2 text-sm font-bold text-white shadow-lg">Exit Display</button>
+  <audio id="buzzer-sound" src="/buzzer/wrong-answer-sound-effect%20(1).mp3" preload="auto"></audio>
+  <script src="/timer-sounds.js"></script>
+  <script src="/practical-admin.js"></script>
   <script>
     const socket = io();
+    const displayOnly = window.location.pathname === "/display.html";
+    if (displayOnly) {
+      document.body.classList.add("shower-mode", "display-mode");
+    } else {
+      // The admin Host page must always start with its controls available.
+      document.body.classList.remove("shower-mode", "display-mode");
+    }
+    const displayModeOpen = document.getElementById("display-mode-open");
+    const displayExit = document.getElementById("display-exit");
+    function setDisplayMode(enabled) {
+      if (enabled && !/^\d{6}$/.test(roomPin)) {
+        showError("Create or open a game before opening the display screen.");
+        return;
+      }
+      document.body.classList.toggle("display-mode", enabled);
+      displayExit.classList.toggle("hidden", !enabled);
+      displayModeOpen.setAttribute("aria-pressed", String(enabled));
+      if (enabled && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else if (!enabled && document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      if (enabled && !document.getElementById("podium-screen").classList.contains("hidden")) {
+        startFinalRankReveal();
+      } else if (!enabled) {
+        clearTimeout(finalRankRevealTimer);
+        document.querySelector(".final-rankings-panel").classList.remove("final-rankings-sequenced", "final-rankings-hidden", "final-rankings-revealed");
+        document.getElementById("final-rank-reveal-note").classList.add("hidden");
+      }
+    }
+    displayModeOpen.addEventListener("click", () => setDisplayMode(true));
+    displayExit.addEventListener("click", () => setDisplayMode(false));
     const colors = ["#e21b3c", "#1368ce", "#d89e00", "#26890c"];
     const shapes = ["▲", "◆", "●", "■"];
     const screens = ["start-screen", "lobby-screen", "round-screen", "question-screen", "review-screen", "podium-screen"];
     let roomPin = "";
+    let hostPlayers = [];
+    let currentRoundStatus = "";
+    let currentRoundNext = null;
+    let currentRoundState = null;
+    let practicalAdminDetails = { selectedTheme: null, practicalTimeLimit: 20 };
+    let rapidCompletedTurns = 0;
+    let practicalTimeLimit = 20;
     let timerInterval;
+    let finalRankRevealTimer;
+    let lastTimerSoundKey = "";
     let isPaused = false;
     let questions = [];
     let roundQuestionBanks = null;
+    socket.on("connect_error", () => {
+      showError(displayOnly
+        ? "The display screen cannot connect. Check the server and reload this link."
+        : "The Host screen cannot connect to the game server. Check that the server is running, then reload.");
+      if (!displayOnly && !/^\d{6}$/.test(new URLSearchParams(window.location.search).get("pin") || "")) {
+        showScreen("start-screen");
+      }
+    });
     const roundOrder = ["rapid-fire", "main-quiz", "practical"];
     const roundNames = {
       "rapid-fire": "Rapid Fire",
@@ -240,10 +414,86 @@
         else element.classList.remove("grid");
       });
     }
+    function startFinalRankReveal() {
+      const panel = document.querySelector(".final-rankings-panel");
+      const note = document.getElementById("final-rank-reveal-note");
+      if (!panel || !document.body.classList.contains("display-mode")) return;
+      clearTimeout(finalRankRevealTimer);
+      panel.classList.add("final-rankings-sequenced", "final-rankings-hidden");
+      note.classList.remove("hidden");
+      finalRankRevealTimer = setTimeout(() => {
+        panel.classList.remove("final-rankings-hidden");
+        panel.classList.add("final-rankings-revealed");
+        note.classList.add("hidden");
+        panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 6000);
+    }
     function showError(message) {
       document.getElementById("host-error-message").textContent = message;
       document.getElementById("host-error").classList.remove("hidden");
     }
+    function playTimerEndSound(round, deadline) {
+      if (!deadline) return;
+      const key = `${round}:${deadline}`;
+      if (key === lastTimerSoundKey) return;
+      lastTimerSoundKey = key;
+      window.quizTimerSounds?.stop();
+      const audio = document.getElementById("buzzer-sound");
+      if (!audio) return;
+      audio.currentTime = 0;
+      audio.play().catch(() => showError("Buzzer sound playback failed. Check the file in public/buzzer."));
+    }
+    async function quizAdminAction(action, body = {}) {
+      const response = await fetch(`/api/admin/games/${encodeURIComponent(roomPin)}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not update the game.");
+      if (action === "practical-stop-timer" && result.status !== "practical-question-review") {
+        throw new Error("The practical timer did not stop. Refresh the Host screen and try again.");
+      }
+      practicalAdminDetails = {
+        selectedTheme: result.selectedTheme || null,
+        practicalTimeLimit: result.practicalTimeLimit || 20
+      };
+      if (action === "practical-stop-timer" && currentRoundState) {
+        renderRoundState({
+          ...currentRoundState,
+          status: result.status,
+          practicalDeadline: 0,
+          activePlayer: result.players.find((player) => player.id === result.activePlayerId)?.nickname || "",
+          selectedTheme: result.selectedTheme || null,
+          theme: result.selectedTheme ? { name: result.selectedTheme.name, videoUrl: result.selectedTheme.videoUrl } : null
+        });
+        return result;
+      }
+      renderRoundState({
+        status: result.status,
+        nextRound: result.roundOrder?.[result.roundOrder.indexOf(result.round) + 1] || null,
+        practicalIndex: result.practicalIndex,
+        practicalTurns: result.practicalTurns,
+        practicalQueue: result.status === "practical-theme" && result.practicalOrder?.[result.practicalIndex]
+          ? [result.practicalOrder[result.practicalIndex]]
+          : [],
+        practicalOrder: result.practicalOrder,
+        usedThemes: result.usedPracticalThemes,
+        theme: result.selectedTheme ? { name: result.selectedTheme.name, videoUrl: result.selectedTheme.videoUrl } : null,
+        selectedTheme: result.selectedTheme || null,
+        activePlayer: result.activePlayerId ? result.players.find((player) => player.id === result.activePlayerId)?.nickname || "" : "",
+        activePlayerId: result.activePlayerId,
+        practicalTimeLimit: result.practicalTimeLimit,
+        practicalDeadline: 0,
+        videoDeadline: 0,
+        rapidOrder: result.rapidOrder,
+        rapidCompletedCount: result.rapidResults?.length || 0,
+        buzzer: result.buzzer
+      });
+      return result;
+    }
+    window.quizAdminAction = quizAdminAction;
+    window.quizAdminError = showError;
     function renderPublicTotals(state) {
       const entries = state.totals || (state.permissions?.showTeamTotalToPlayers
         ? (state.players || []).filter((player) => player.score !== undefined)
@@ -272,6 +522,7 @@
       loadQuestions().catch(showError);
     });
     function renderLobby(state) {
+      hostPlayers = state.players || hostPlayers;
       renderPublicTotals(state);
       document.getElementById("player-count").textContent = `${state.players.length} joined`;
       const list = document.getElementById("player-list");
@@ -289,80 +540,268 @@
       list.replaceChildren();
       entries.forEach((player, index) => {
         const item = document.createElement("li");
-        item.className = "flex items-center justify-between rounded-xl bg-slate-100 px-4 py-3";
+        const rank = player.rank || index + 1;
+        const place = rank === 1 ? "1st" : rank === 2 ? "2nd" : rank === 3 ? "3rd" : `${rank}th`;
+        const rankStyle = rank === 1
+          ? "border-amber-200 bg-gradient-to-r from-amber-50 to-white shadow-md"
+          : rank === 2
+            ? "border-slate-200 bg-gradient-to-r from-slate-100 to-white shadow-sm"
+            : rank === 3
+              ? "border-orange-200 bg-gradient-to-r from-orange-50 to-white shadow-sm"
+              : "border-purple-100 bg-white/80";
+        item.className = `flex items-center gap-4 rounded-2xl border px-4 py-3 transition ${rankStyle}`;
+        const badge = document.createElement("span");
+        badge.className = `grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-xl font-black ring-2 ring-inset ${
+          rank === 1 ? "bg-amber-100 text-amber-700 ring-amber-300" :
+          rank === 2 ? "bg-slate-200 text-slate-700 ring-slate-300" :
+          rank === 3 ? "bg-orange-100 text-orange-800 ring-orange-200" :
+          "bg-purple-100 text-purple-800 ring-purple-200"
+        }`;
+        badge.textContent = rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : String(rank);
+        badge.setAttribute("aria-label", `${place} place`);
+        const details = document.createElement("div");
+        details.className = "min-w-0 flex-1";
+        const placeLabel = document.createElement("p");
+        placeLabel.className = "text-xs font-black uppercase tracking-wider text-slate-500";
+        placeLabel.textContent = `${place} place`;
         const name = document.createElement("span");
-        name.className = "font-bold";
-        name.textContent = `${player.rank}${player.rank === 1 ? "st" : player.rank === 2 ? "nd" : player.rank === 3 ? "rd" : "th"} ${player.nickname}`;
-        const score = document.createElement("span");
-        score.className = "font-black text-purple-800";
-        score.textContent = player.score === undefined ? "" : `${player.score} pts`;
-        item.append(name, score);
+        name.className = "mt-0.5 block truncate text-lg font-black text-slate-900";
+        name.textContent = player.nickname;
+        details.append(placeLabel, name);
+        item.append(badge, details);
+        if (player.score !== undefined) {
+          const score = document.createElement("span");
+          score.className = "shrink-0 rounded-full bg-purple-100 px-3 py-1.5 text-sm font-black text-purple-800";
+          score.textContent = `${player.score} pts`;
+          item.append(score);
+        }
         list.append(item);
       });
-      if (!entries.length) list.textContent = "No players";
+      if (!entries.length) {
+        const empty = document.createElement("li");
+        empty.className = "rounded-2xl border border-dashed border-purple-200 bg-white/70 px-4 py-8 text-center font-semibold text-slate-500";
+        empty.textContent = "No leaderboard entries yet";
+        list.append(empty);
+      }
+    }
+
+    function renderPaperMarkEntry() {
+      const fields = document.getElementById("paper-mark-fields");
+      const submit = document.getElementById("paper-mark-submit");
+      fields.replaceChildren();
+      const entries = hostPlayers.map((player) => {
+        const label = document.createElement("label");
+        label.className = "paper-mark-player";
+        const heading = document.createElement("span");
+        heading.className = "paper-mark-player-name";
+        const rank = document.createElement("span");
+        rank.className = "paper-mark-player-number";
+        rank.textContent = String(fields.childElementCount + 1).padStart(2, "0");
+        const name = document.createElement("span");
+        name.textContent = player.nickname;
+        heading.append(rank, name);
+        const scoreLabel = document.createElement("span");
+        scoreLabel.className = "paper-mark-input-label";
+        scoreLabel.textContent = "Paper score";
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.max = "1000000";
+        input.step = "1";
+        input.value = "0";
+        input.required = true;
+        input.setAttribute("aria-label", `Paper marks for ${player.nickname}`);
+        input.placeholder = "Enter marks";
+        input.className = "paper-mark-input";
+        label.append(heading, scoreLabel, input);
+        fields.append(label);
+        return { player, input };
+      });
+      submit.disabled = !entries.length;
+      submit.onclick = async () => {
+        if (entries.some(({ input }) => !input.reportValidity())) return;
+        submit.disabled = true;
+        try {
+          await quizAdminAction("paper-submit", {
+            marks: entries.map(({ player, input }) => ({ playerId: player.id, marks: Number(input.value) }))
+          });
+        } catch (error) {
+          showError(error.message);
+          submit.disabled = false;
+        }
+      };
     }
 
     function renderRoundState(state) {
+      currentRoundState = state;
+      currentRoundStatus = state.status;
+      currentRoundNext = state.nextRound || null;
       renderPublicTotals(state);
+      document.getElementById("publish-final-ranks").classList.toggle("hidden", state.status !== "paper-results");
+      document.getElementById("paper-mark-entry").classList.toggle("hidden", state.status !== "paper-marks");
       if (state.status === "lobby") return;
       if (["question", "paused", "review", "finished"].includes(state.status)) return;
       clearInterval(timerInterval);
       showScreen("round-screen");
+      document.getElementById("next-round").classList.toggle(
+        "hidden",
+        !["rapid-rules", "quiz-rules"].includes(state.status) && state.status !== "rapid-turns"
+      );
       document.getElementById("round-themes").replaceChildren();
       document.getElementById("round-queue").replaceChildren();
       document.getElementById("round-video-wrap").classList.add("hidden");
+      const roundVideo = document.getElementById("round-video");
+      const roundVideoFrame = document.getElementById("round-video-frame");
+      const roundVideoPlay = document.getElementById("round-video-play");
+      roundVideo.controls = false;
+      roundVideo.removeAttribute("controls");
+      if (state.status !== "practical-video") {
+        roundVideo.pause();
+        roundVideo.removeAttribute("src");
+        roundVideo.load();
+        roundVideoFrame.src = "about:blank";
+        roundVideoFrame.classList.add("hidden");
+        roundVideo.classList.remove("hidden");
+        roundVideoPlay.classList.add("hidden");
+      }
+      if (window.quizPracticalAdmin) window.quizPracticalAdmin.render({ ...state, ...practicalAdminDetails });
       const titles = {
         "rapid-rules": ["Round 1 · Rapid Fire", "Rapid Fire rules", "Everyone answers the common question together. The fastest correct answers determine the turn order. The announcer then asks each participant live questions; the administrator records answered questions, points per question, and any manual bonus."],
         "rapid-common": ["Round 1 · Rapid Fire", "Common question", "Answer on your own player screen. This answer determines call order; Rapid Fire points are added in the individual turns."],
         "rapid-turns": ["Round 1 · Rapid Fire", "Participant order", "The administrator is stepping through the Rapid Fire ranking one participant at a time."],
         "rapid-turn": ["Round 1 · Rapid Fire", "Live turn", "The announcer is asking this participant questions. The administrator controls the turn timer and records scoring."],
         "quiz-rules": ["Round 2 · Main Quiz", "Quiz rules", "Correct answers earn the configured points minus one for each elapsed second, with a minimum of one point. Wrong answers and timeouts receive the same fixed penalty. The administrator controls the quiz leaderboard visibility."],
-        "practical-rules": ["Event 3 · Practical Quiz", "Practical Quiz rules", "Participants choose a theme in Rapid Fire order, watch its video, then answer individually. After that, everyone competes in a common buzzer question; only the first two presses are eligible."],
+        "practical-rules": ["Event 3 · Practical Quiz", "Practical Quiz rules", "The top ten participants in Rapid Fire order each choose a different theme. The chosen participant answers the private question, then everyone can buzz for that theme's shared question. The Admin records Correct, Wrong, or Not Answered."],
         "practical-theme": ["Round 3A · Theme selection", "Choose a theme", "The active participant chooses one of the ten themes on their player screen. Their choice is shown to everyone."],
-        "practical-video": ["Round 3A · Video stage", "Watch the practical video", "The video is playing for the active participant, host, and other players."],
-        "practical-question": ["Round 3A · Individual question", "Answer in progress", "Only the active participant receives this question. Correct answers earn the configured practical points; wrong answers and timeouts do not change totals."],
-        "buzzer-ready": ["Round 3B · Buzzer", "Buzzer question", "The first two participants to press the buzzer are eligible. The administrator grants each chance in order; a correct first answer ends the round."],
-        "buzzer": ["Round 3B · Buzzer", "Buzzer is open", "Press the buzzer on your player screen. Only the first two presses are recorded."],
-        "buzzer-results": ["Event 3B · Buzzer", "Buzzer results", "The administrator enters Final Paper Marks next."],
-        "paper-marks": ["Event 4 · Final Paper Marks", "Admin is entering Paper Marks", "Paper Marks are added to each participant's cumulative score. The Admin Panel is the only place marks can be entered."],
-        "paper-results": ["Event 4 · Final Paper Marks", "Marks added", "The administrator is ready to publish the final overall leaderboard."]
+        "practical-video": ["Round 3A · Video stage", "Watch the practical video", "There is no video countdown. The Admin uses Skip video and ask question when ready."],
+        "practical-question": ["Round 3A · Individual question", "Answer in progress", "The announcer asks the active participant. They answer aloud; the Admin records Correct (+10), Wrong (−5), or Not Answered (0)."],
+        "practical-question-review": ["Round 3A · Individual question", "Admin is recording the answer", "The Admin records Correct (+10), Wrong (−5), or Not Answered (0)."],
+        "buzzer-ready": ["Round 3B · Common question", "Common question", "The first two participants to press the buzzer are eligible. The Admin grants chances in press order and records the result."],
+        "buzzer": ["Round 3B · Common question", "Common question", "Press the buzzer on your player screen. Only the first two presses are recorded."],
+        "buzzer-review": ["Round 3B · Buzzer", "Admin is recording the answer", "The Admin records the buzzer answer before continuing."],
+        "buzzer-results": ["Round 3B · Buzzer", "Theme complete", "The Admin clicks Next to let the next participant choose a theme, or to continue after the last theme."],
+        "paper-marks": ["Competition complete", "Game End", "Thank you for taking part. Please stay with us for the final results."],
+        "paper-results": ["Final results", "Results are ready", "Stay tuned for the final standings."]
       };
       const detail = titles[state.status] || ["Science Day", "Competition in progress", ""];
+      const isPaperEntry = state.status === "paper-marks";
+      document.getElementById("paper-game-end").classList.toggle("hidden", !isPaperEntry);
+      ["round-label", "round-title", "round-copy", "round-active", "round-chooser", "practical-spot", "round-timer-wrap"]
+        .forEach((id) => document.getElementById(id).classList.toggle("hidden", isPaperEntry));
+      if (isPaperEntry) renderPaperMarkEntry();
       document.getElementById("round-label").textContent = detail[0]
         .replace(/^(?:Round|Event) \d+/, `Round ${state.roundNumber || 1}`);
       document.getElementById("round-title").textContent = detail[1];
       document.getElementById("round-copy").textContent = state.rulesText || detail[2];
       if (state.status === "buzzer-results") {
-        document.getElementById("round-copy").textContent = state.nextRound
-          ? `The administrator can continue to ${state.nextRound === "main-quiz" ? "Quiz" : "Practical Quiz"} next.`
-          : "The administrator enters Final Paper Marks next.";
+        const nextParticipant = state.practicalOrder?.[state.practicalIndex + 1];
+        document.getElementById("round-copy").textContent = nextParticipant
+          ? `${nextParticipant.nickname} is next to choose a theme.`
+          : state.nextRound
+            ? `The administrator can continue to ${state.nextRound === "main-quiz" ? "Quiz" : "Practical Quiz"} next.`
+            : "The Admin presses Next to show Game End.";
       }
       if (state.status === "rapid-common" && state.commonQuestion) {
         document.getElementById("round-copy").textContent = state.commonQuestion;
       }
-      if (state.status.startsWith("buzzer") && state.buzzer?.question) {
+      if (["buzzer-ready", "buzzer", "buzzer-review"].includes(state.status) && state.buzzer?.question) {
         document.getElementById("round-copy").textContent = state.buzzer.question;
       }
       document.getElementById("round-active").textContent =
         state.status === "rapid-turn" ? `Now playing: ${state.rapidTurn?.nickname || ""}` :
-        state.activePlayer ? `Active participant: ${state.activePlayer}` : "";
+        ["practical-theme", "practical-video", "practical-question", "practical-question-review"].includes(state.status)
+          ? `Theme chooser: ${state.activePlayer || ""}` : "";
       const rapidOrder = document.getElementById("rapid-order");
       rapidOrder.replaceChildren();
       rapidOrder.classList.toggle("hidden", !["rapid-turns", "rapid-turn"].includes(state.status));
-      (state.rapidOrder || []).forEach((player) => {
+      const completedTurns = Number.isInteger(state.rapidCompletedCount)
+        ? state.rapidCompletedCount
+        : rapidCompletedTurns;
+      const allRapidTurnsComplete = state.status === "rapid-turns" &&
+        completedTurns >= (state.rapidOrder || []).length;
+      const canContinuePractical = state.status === "buzzer-results";
+      document.getElementById("rapid-turn-controls").classList.toggle(
+        "hidden",
+        state.status !== "rapid-turns" || allRapidTurnsComplete
+      );
+      const nextButton = document.getElementById("next-round");
+      nextButton.classList.toggle(
+        "hidden",
+        !["rapid-rules", "quiz-rules", "practical-rules"].includes(state.status) &&
+          !allRapidTurnsComplete && !canContinuePractical
+      );
+      if (["practical-rules", "buzzer-results"].includes(state.status)) nextButton.classList.add("hidden");
+      if (allRapidTurnsComplete || canContinuePractical) nextButton.textContent = "Next";
+      document.getElementById("rapid-score-controls").classList.add("hidden");
+      const nextRapidIndex = completedTurns;
+      (state.rapidOrder || []).forEach((player, index) => {
         const row = document.createElement("li");
-        row.className = "rounded-lg bg-purple-50 px-4 py-2 font-bold";
-        row.textContent = `${player.rank}. ${player.nickname}`;
+        row.className = "rounded-lg bg-purple-50 font-bold";
+        const isNext = state.status === "rapid-turns" && index === nextRapidIndex;
+        if (state.status === "rapid-turns") {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = isNext
+            ? "w-full cursor-pointer rounded-lg bg-emerald-700 px-4 py-3 text-left text-lg font-black text-white hover:bg-emerald-800"
+            : "w-full rounded-lg px-4 py-3 text-left text-slate-500 disabled:cursor-not-allowed disabled:opacity-60";
+          button.textContent = isNext
+            ? `Start timer: ${player.rank}. ${player.nickname}`
+            : `${player.rank}. ${player.nickname}`;
+          button.disabled = !isNext;
+          button.addEventListener("click", async () => {
+            const duration = Number(document.getElementById("rapid-turn-duration").value);
+            button.disabled = true;
+            try {
+              const response = await fetch(`/api/admin/games/${encodeURIComponent(roomPin)}/rapid-turn`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ playerId: player.id, duration })
+              });
+              const result = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(result.error || "Could not start the participant's turn.");
+            } catch (error) {
+              showError(error.message);
+              button.disabled = false;
+            }
+          });
+          row.append(button);
+        } else {
+          row.classList.add("px-4", "py-2");
+          row.textContent = `${player.rank}. ${player.nickname}`;
+        }
         rapidOrder.append(row);
       });
       const deadline = state.status === "rapid-turn" ? state.rapidTurn?.deadline :
         state.status === "rapid-common" ? state.rapidDeadline :
-        state.status === "practical-video" ? state.videoDeadline :
         state.status === "practical-question" ? state.practicalDeadline :
-        state.status === "buzzer" ? state.buzzer?.deadline : 0;
+        state.status === "buzzer" || (state.status === "buzzer-ready" && state.buzzer?.status === "chance")
+          ? state.buzzer?.deadline
+          : 0;
       const updateRoundTimer = () => {
         const remaining = deadline ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0;
-        document.getElementById("round-timer").textContent = deadline ? `${remaining}s` : "";
+        const timer = document.getElementById("round-timer");
+        const timerWrap = document.getElementById("round-timer-wrap");
+        const adminTimer = document.getElementById("practical-admin-countdown");
+        const scoreControls = document.getElementById("rapid-score-controls");
+        const scoreSubmit = document.getElementById("rapid-score-submit");
+        timer.textContent = deadline ? `${remaining}s` : "";
+        window.quizTimerSounds?.tick(state.status, deadline, remaining);
+        timerWrap.classList.toggle("hidden", !deadline || state.status === "practical-video");
+        adminTimer.textContent = deadline ? `Time left: ${remaining} seconds` : "";
+        adminTimer.classList.toggle("hidden", !deadline || !["practical-question", "buzzer", "buzzer-ready"].includes(state.status));
+        scoreControls.classList.toggle("hidden", state.status !== "rapid-turn" || remaining > 0);
+        scoreSubmit.disabled = state.status !== "rapid-turn" || remaining > 0;
+        if (deadline && remaining === 0) {
+          playTimerEndSound(state.status === "rapid-turn" || state.status === "rapid-common" ? "rapid-fire" : "practical", deadline);
+        }
+        const emergency = state.status === "rapid-turn" && remaining > 0 && remaining <= 10;
+        timer.classList.toggle("bg-purple-50", !emergency);
+        timer.classList.toggle("text-purple-700", !emergency);
+        timer.classList.toggle("bg-red-100", emergency);
+        timer.classList.toggle("text-red-700", emergency);
+        timer.classList.toggle("ring-4", emergency);
+        timer.classList.toggle("ring-red-500", emergency);
+        timer.classList.toggle("animate-pulse", emergency);
         if (!remaining) clearInterval(timerInterval);
       };
       updateRoundTimer();
@@ -374,20 +813,58 @@
         document.getElementById("round-queue").append(row);
       });
       if (state.status === "practical-video" && state.theme?.videoUrl) {
-        const video = document.getElementById("round-video");
-        if (video.getAttribute("src") !== state.theme.videoUrl) {
-          video.src = state.theme.videoUrl;
-          video.load();
-          video.play().catch(() => showError("Video autoplay was blocked; use the video controls to start playback."));
+        const source = state.theme.videoUrl;
+        const drivePreview = getGoogleDrivePreviewUrl(source);
+        if (drivePreview) {
+          roundVideo.pause();
+          roundVideo.removeAttribute("src");
+          roundVideo.classList.add("hidden");
+          roundVideoPlay.classList.add("hidden");
+          roundVideoFrame.classList.remove("hidden");
+          if (roundVideoFrame.src !== drivePreview) roundVideoFrame.src = drivePreview;
+        } else {
+          roundVideoFrame.src = "about:blank";
+          roundVideoFrame.classList.add("hidden");
+          roundVideo.classList.remove("hidden");
+          if (roundVideo.getAttribute("src") !== source) {
+            roundVideo.src = source;
+            roundVideo.load();
+            roundVideoPlay.classList.remove("hidden");
+            roundVideo.play().then(() => roundVideoPlay.classList.add("hidden")).catch(() => {});
+          }
         }
         document.getElementById("round-video-wrap").classList.remove("hidden");
       }
     }
 
+    function getGoogleDrivePreviewUrl(source) {
+      try {
+        const url = new URL(source, window.location.href);
+        if (url.hostname !== "drive.google.com") return "";
+        const filePath = url.pathname.match(/^\/file\/d\/([^/]+)/);
+        const fileId = filePath?.[1] || url.searchParams.get("id");
+        return fileId ? `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview` : "";
+      } catch {
+        return "";
+      }
+    }
+
+    document.getElementById("round-video-play").addEventListener("click", () => {
+      document.getElementById("round-video").play().then(() => {
+        document.getElementById("round-video-play").classList.add("hidden");
+      }).catch(() => showError("Could not play this video. Check its file format and upload."));
+    });
+    document.getElementById("round-video").addEventListener("playing", () => {
+      document.getElementById("round-video-play").classList.add("hidden");
+    });
+    document.getElementById("round-video").addEventListener("error", () => {
+      showError("This video could not be decoded. Use an MP4 (H.264/AAC) or a Google Drive sharing link with viewer access.");
+    });
+
     function setupLobby(pin, title = "Science Quiz", lanOrigin = null) {
       roomPin = pin;
-      window.history.replaceState(null, "", `/host.html?pin=${encodeURIComponent(pin)}`);
-      document.title = `${title} — Host`;
+      window.history.replaceState(null, "", `${displayOnly ? "/display.html" : "/host.html"}?pin=${encodeURIComponent(pin)}`);
+      document.title = `${title} — ${displayOnly ? "Display" : "Host"}`;
       document.getElementById("room-pin").textContent = roomPin;
       const localHostnames = ["localhost", "127.0.0.1", "::1", "[::1]"];
       const origin = localHostnames.includes(window.location.hostname) && lanOrigin
@@ -409,13 +886,18 @@
     }
 
     function watchGame(pin) {
-      socket.emit("host:watch", { pin }, (result) => {
+      socket.emit(displayOnly ? "display:watch" : "host:watch", { pin }, (result) => {
         if (result?.error) {
           showError(result.error);
           showScreen("start-screen");
           loadQuestions().catch(showError);
+        } else {
+          hostPlayers = result.game.players || [];
+          rapidCompletedTurns = result.game.rapidResults?.length || 0;
+          practicalTimeLimit = result.game.practicalTimeLimit || practicalTimeLimit;
+          setupLobby(result.game.pin, result.game.title, result.joinOrigin);
+          if (displayOnly) setDisplayMode(true);
         }
-        else setupLobby(result.game.pin, result.game.title, result.joinOrigin);
       });
     }
 
@@ -465,7 +947,7 @@
         rapidSelect.append(option);
       });
       document.getElementById("rapid-question-preview").textContent =
-        `Rapid Fire has ${roundQuestionBanks.rapidFire.announcerQuestions.length} announcer prompts. Practical Quiz has ${roundQuestionBanks.practical.themes.length} themes and ${roundQuestionBanks.practical.buzzerQuestions.length} buzzer questions. Edit these in the Admin Panel.`;
+        `Rapid Fire has ${roundQuestionBanks.rapidFire.announcerQuestions.length} announcer prompts. Each of the ${roundQuestionBanks.practical.themes.length} Practical themes has a private question and a shared buzzer question. Edit these in the Admin Panel.`;
     }
 
     document.getElementById("toggle-questions").addEventListener("click", (event) => {
@@ -515,8 +997,12 @@
     function connectHost() {
       roomPin = new URLSearchParams(window.location.search).get("pin") || "";
       if (!/^\d{6}$/.test(roomPin)) {
+        if (displayOnly) {
+          showError("Open the Shower screen link provided by the administrator.");
+          return;
+        }
         showScreen("start-screen");
-        loadQuestions().catch(showError);
+        if (!displayOnly) loadQuestions().catch(showError);
         return;
       }
       socket.on("connect", () => watchGame(roomPin));
@@ -527,6 +1013,66 @@
       socket.emit("host:start", (result) => {
         if (result?.error) showError(result.error);
       });
+    });
+    document.getElementById("next-round").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const actions = {
+        "rapid-rules": "rapid-common",
+        "quiz-rules": "quiz-start",
+        "practical-rules": "practical-start",
+        "rapid-turns": "rapid-next",
+        "buzzer-results": "practical-next"
+      };
+      const action = actions[currentRoundStatus];
+      if (!action) {
+        showError("The game is not showing round rules.");
+        return;
+      }
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/games/${encodeURIComponent(roomPin)}/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(currentRoundStatus === "practical-rules"
+            ? { timeLimit: practicalTimeLimit }
+            : {})
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Could not continue the game.");
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    document.getElementById("publish-final-ranks").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        await quizAdminAction("finish");
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    document.getElementById("rapid-score-submit").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/games/${encodeURIComponent(roomPin)}/rapid-turn-finish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ marks: Number(document.getElementById("rapid-marks").value) })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Could not record Rapid Fire marks.");
+        document.getElementById("rapid-marks").value = "0";
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        button.disabled = false;
+      }
     });
     document.getElementById("next-question").addEventListener("click", () => {
       socket.emit("host:next", (result) => {
@@ -564,7 +1110,9 @@
         options.append(block);
       });
       const updateTimer = () => {
-        document.getElementById("timer").textContent = Math.max(0, Math.ceil((question.deadline - Date.now()) / 1000));
+        const remaining = Math.max(0, Math.ceil((question.deadline - Date.now()) / 1000));
+        document.getElementById("timer").textContent = remaining;
+        window.quizTimerSounds?.tick("main-quiz", question.deadline, remaining);
       };
       updateTimer();
       timerInterval = setInterval(updateTimer, 200);
@@ -574,6 +1122,7 @@
       document.getElementById("answers-received").textContent = `Answers: ${answered} / ${total}`;
     });
     socket.on("game:paused", () => {
+      window.quizTimerSounds?.stop();
       isPaused = true;
       clearInterval(timerInterval);
       document.getElementById("timer").textContent = "PAUSED";
@@ -583,12 +1132,15 @@
       isPaused = false;
       document.getElementById("pause-game").textContent = "Pause";
       const updateTimer = () => {
-        document.getElementById("timer").textContent = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        document.getElementById("timer").textContent = remaining;
+        window.quizTimerSounds?.tick("main-quiz", deadline, remaining);
       };
       updateTimer();
       timerInterval = setInterval(updateTimer, 200);
     });
     socket.on("game:review", (review) => {
+      window.quizTimerSounds?.stop();
       clearInterval(timerInterval);
       document.getElementById("correct-answer").textContent = review.options[review.correctIndex];
       const distribution = document.getElementById("distribution");
@@ -637,53 +1189,92 @@
       order.forEach((rankIndex) => {
         const player = leaderboard[rankIndex];
         const card = document.createElement("div");
-        card.className = `rounded-2xl p-6 text-center ${rankIndex === 0 ? "bg-amber-300 text-amber-950 sm:pb-12" : "bg-white text-slate-900"}`;
+        card.className = `podium-card podium-card-rank-${rankIndex + 1}${player ? "" : " podium-card-empty"}`;
         if (player) {
+          const place = document.createElement("p");
+          place.className = "podium-place";
+          place.textContent = `${rankIndex + 1}${rankIndex === 0 ? "st" : rankIndex === 1 ? "nd" : "rd"} place`;
           const medal = document.createElement("p");
-          medal.className = "text-5xl";
+          medal.className = "podium-medal";
           medal.textContent = ["🥇", "🥈", "🥉"][rankIndex];
           const name = document.createElement("p");
-          name.className = "mt-2 break-words text-2xl font-black";
+          name.className = "podium-name";
           name.textContent = player.nickname;
           const score = document.createElement("p");
-          score.className = "mt-1 font-bold";
+          score.className = "podium-total";
           score.textContent = showScores ? `${player.score} points` : "";
-          card.append(medal, name, score);
+          const paper = document.createElement("span");
+          paper.className = "paper-score-chip";
+          paper.textContent = showScores ? `Paper · ${player.paperMarks ?? 0} marks` : "";
+          card.append(place, medal, name, score, paper);
         } else {
-          card.textContent = `${rankIndex + 1}${rankIndex === 0 ? "st" : rankIndex === 1 ? "nd" : "rd"} place`;
+          const place = document.createElement("p");
+          place.className = "podium-place";
+          place.textContent = `${rankIndex + 1}${rankIndex === 1 ? "st" : rankIndex === 0 ? "nd" : "rd"} place`;
+          const emptyMark = document.createElement("span");
+          emptyMark.className = "podium-empty-mark";
+          emptyMark.textContent = "—";
+          const message = document.createElement("p");
+          message.className = "podium-empty-copy";
+          message.textContent = "No finalist";
+          card.append(place, emptyMark, message);
         }
         podium.append(card);
       });
+      document.getElementById("final-count").textContent = `${leaderboard.length} ${leaderboard.length === 1 ? "participant" : "participants"}`;
+      const rankingPanel = document.querySelector(".final-rankings-panel");
+      rankingPanel.classList.remove("final-rankings-sequenced", "final-rankings-hidden", "final-rankings-revealed");
+      document.getElementById("final-rank-reveal-note").classList.add("hidden");
       const finalLeaderboard = document.getElementById("final-leaderboard");
       finalLeaderboard.replaceChildren();
       leaderboard.forEach((player) => {
         const row = document.createElement("li");
-        row.className = "grid grid-cols-[3.5rem_1fr_auto] items-center gap-3 rounded-xl bg-slate-100 px-4 py-3";
+        row.className = "final-result-row";
         const rank = document.createElement("strong");
+        rank.className = "final-result-rank";
         rank.textContent = `${player.rank}.`;
         const name = document.createElement("span");
-        name.className = "break-words font-bold";
+        name.className = "final-result-name";
         name.textContent = player.nickname;
-        const score = document.createElement("strong");
-        score.textContent = showScores ? `${player.score} points` : "";
-        row.append(rank, name, score);
+        const scores = document.createElement("span");
+        scores.className = "final-result-scores";
+        const total = document.createElement("strong");
+        total.className = "final-result-total";
+        total.textContent = showScores ? `${player.score} pts total` : "";
+        const paper = document.createElement("span");
+        paper.className = "final-result-paper";
+        paper.textContent = showScores ? `${player.paperMarks ?? 0} paper marks` : "";
+        scores.append(total, paper);
+        row.append(rank, name, scores);
         finalLeaderboard.append(row);
       });
       showScreen("podium-screen");
+      startFinalRankReveal();
     });
     socket.on("game:round-state", renderRoundState);
+    socket.on("game:practical-admin-state", (details) => {
+      practicalAdminDetails = details || { selectedTheme: null, practicalTimeLimit: 20 };
+      if (currentRoundState && window.quizPracticalAdmin) {
+        window.quizPracticalAdmin.render({ ...currentRoundState, ...practicalAdminDetails });
+      }
+    });
+    socket.on("game:rapid-result", () => {
+      rapidCompletedTurns += 1;
+    });
     socket.on("game:practical-video", () => {});
     socket.on("game:rapid-common", (question) => {
       renderRoundState({ status: "rapid-common", buzzer: { queue: [] } });
       document.getElementById("round-copy").textContent = question.question;
     });
-    socket.on("game:buzzer-start", ({ question }) => {
+    socket.on("game:buzzer-start", () => {
       renderRoundState({ status: "buzzer", buzzer: { queue: [] } });
-      document.getElementById("round-copy").textContent = question;
     });
     socket.on("game:buzzer-pressed", () => {
       const audio = document.getElementById("buzzer-sound");
-      if (audio?.readyState) audio.play().catch(() => showError("Buzzer sound playback failed. Check public/buzzer.mp3."));
+      if (audio?.readyState) audio.play().catch(() => showError("Buzzer sound playback failed. Check the file in public/buzzer."));
+    });
+    socket.on("game:timer-end", ({ round, deadline }) => {
+      playTimerEndSound(round, deadline);
     });
     connectHost();
   </script>

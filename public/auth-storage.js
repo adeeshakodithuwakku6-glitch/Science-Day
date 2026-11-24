@@ -13,7 +13,7 @@
         typeof user.id === "string" &&
         typeof user.name === "string" &&
         typeof user.email === "string" &&
-        (user.role === "user" || user.role === "admin")
+        (user.role === "user" || user.role === "shower" || user.role === "admin")
       ) {
         return user;
       }

@@ -1,17 +1,23 @@
 const crypto = require("node:crypto");
+const fsStream = require("node:fs");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { Transform } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const express = require("express");
 const http = require("node:http");
 const { Server } = require("socket.io");
 
 const PORT = Number(process.env.PORT) || 3000;
+const PORT_WAS_CONFIGURED = Boolean(process.env.PORT);
 const QUESTIONS_FILE = path.join(__dirname, "questions.json");
 const ROUND_QUESTION_BANKS_FILE = path.join(__dirname, "round-question-banks.json");
 const USERS_FILE = path.resolve(process.env.USER_STORE_FILE || path.join(__dirname, "users.json"));
 const GAMES_FILE = path.resolve(process.env.GAMES_FILE || path.join(__dirname, "games.json"));
 const SESSIONS_FILE = path.resolve(process.env.SESSION_STORE_FILE || path.join(__dirname, "sessions.json"));
+const PUBLIC_DIR = path.join(__dirname, "public");
+const MAX_MEDIA_BYTES = 1024 * 1024 * 1024;
 const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -31,12 +37,12 @@ const ROUND_LABELS = Object.freeze({
 const DEFAULT_ROUND_RULES = Object.freeze({
   "rapid-fire": "Everyone answers the common question together. Fastest correct answers set the calling order. The announcer asks questions verbally during each timed turn; the Admin records answered questions, points per question, and any manual bonus.",
   "main-quiz": "Each question has its own point value and time limit. Correct answers earn fewer points as time passes, with a minimum of one point. Wrong answers and timeouts apply the same fixed penalty.",
-  practical: "Participants choose a theme in Rapid Fire order, watch its video, then answer individually. After that, everyone competes in a common buzzer question; only the first two presses are eligible."
+  practical: "The top ten Rapid Fire participants choose different themes in order. Each theme has a private question and a shared buzzer question. The Admin records Correct, Wrong, or Not Answered for each answer."
 });
 const DEFAULT_PERMISSIONS = Object.freeze({
   showQuizLeaderboardAndRanks: true,
-  showTeamTotalToPlayers: false,
-  showUserFinalReport: false
+  showTeamTotalToPlayers: true,
+  showUserFinalReport: true
 });
 // Rapid Fire and Practical Quiz content is managed in round-question-banks.json and the Admin Panel.
 
@@ -51,7 +57,9 @@ function getLanAddresses() {
 
 function getLanOrigin() {
   const address = getLanAddresses()[0];
-  return address ? `http://${address}:${PORT}` : null;
+  const addressInfo = server.address();
+  const port = addressInfo && typeof addressInfo === "object" ? addressInfo.port : PORT;
+  return address ? `http://${address}:${port}` : null;
 }
 
 const app = express();
@@ -212,6 +220,7 @@ async function createSession(userId) {
 }
 
 function recordGame(room) {
+  if (room.reportDeleted) return Promise.resolve();
   const rankings = leaderboard(room);
   const record = {
     id: room.id,
@@ -256,8 +265,8 @@ async function loadGameHistory() {
       if ([
         "lobby", "rapid-rules", "rapid-common", "rapid-turns", "rapid-turn",
         "quiz-rules", "question", "paused", "review", "practical-rules",
-        "practical-theme", "practical-video", "practical-question", "buzzer",
-        "buzzer-ready", "buzzer-results", "paper-marks", "paper-results"
+        "practical-theme", "practical-video", "practical-question", "practical-question-review",
+        "buzzer", "buzzer-ready", "buzzer-review", "buzzer-results", "paper-marks", "paper-results"
       ].includes(game.status)) {
         game.status = "interrupted";
         game.endedAt = new Date().toISOString();
@@ -284,7 +293,7 @@ async function loadUsers() {
         typeof user.id !== "string" ||
         typeof user.name !== "string" ||
         typeof user.email !== "string" ||
-        !["user", "admin"].includes(user.role) ||
+        !["user", "shower", "admin"].includes(user.role) ||
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email) ||
         typeof user.passwordSalt !== "string" ||
         !/^[a-f0-9]{32}$/.test(user.passwordSalt) ||
@@ -349,6 +358,10 @@ function requireAdmin(req, res, next) {
 function requireAdminPage(req, res, next) {
   const user = currentUser(getSessionId(req));
   if (!user) return res.redirect("/login.html");
+  if (user.role === "shower") {
+    const pin = typeof req.query.pin === "string" && /^\d{6}$/.test(req.query.pin) ? `?pin=${req.query.pin}` : "";
+    return res.redirect(`/display.html${pin}`);
+  }
   if (user.role !== "admin") return res.redirect("/play.html");
   res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(__dirname, "public", path.basename(req.path)));
@@ -358,8 +371,20 @@ function requirePlayerPage(req, res, next) {
   const user = currentUser(getSessionId(req));
   if (!user) return res.redirect("/login.html");
   if (user.role === "admin") return res.redirect("/admin.html");
+  if (user.role === "shower") {
+    const pin = typeof req.query.pin === "string" && /^\d{6}$/.test(req.query.pin) ? `?pin=${req.query.pin}` : "";
+    return res.redirect(`/display.html${pin}`);
+  }
   res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(__dirname, "public", "play.html"));
+}
+
+function requireDisplayPage(req, res, next) {
+  const user = currentUser(getSessionId(req));
+  if (!user) return res.redirect("/login.html");
+  if (user.role !== "admin" && user.role !== "shower") return res.redirect("/play.html");
+  res.setHeader("Cache-Control", "no-store");
+  res.sendFile(path.join(__dirname, "public", "host.html"));
 }
 
 function loginRateLimit(req, res, next) {
@@ -451,16 +476,13 @@ function validateRoundQuestionBanks(value) {
         themeNames.has(theme.name.trim().toLowerCase()) ||
         typeof theme.question !== "string" || !theme.question.trim() || theme.question.length > 500 ||
         typeof theme.answer !== "string" || !theme.answer.trim() || theme.answer.length > 200 ||
+        typeof theme.buzzerQuestion !== "string" || !theme.buzzerQuestion.trim() || theme.buzzerQuestion.length > 500 ||
+        typeof theme.buzzerAnswer !== "string" || !theme.buzzerAnswer.trim() || theme.buzzerAnswer.length > 200 ||
         (theme.videoUrl !== undefined && theme.videoUrl !== "" &&
           (typeof theme.videoUrl !== "string" || theme.videoUrl.length > 2048 || !isSafeMediaUrl(theme.videoUrl)))) {
-      return `Practical Quiz theme ${index + 1} needs a unique name, question, answer, and a valid optional video URL.`;
+      return `Practical Quiz theme ${index + 1} needs a unique name, both questions and answers, and a valid optional video URL.`;
     }
     themeNames.add(theme.name.trim().toLowerCase());
-  }
-  if (!Array.isArray(practical.buzzerQuestions) || practical.buzzerQuestions.length < 1 ||
-      practical.buzzerQuestions.length > 100 ||
-      practical.buzzerQuestions.some((question) => typeof question !== "string" || !question.trim() || question.length > 500)) {
-    return "Practical Quiz needs 1–100 buzzer questions of at most 500 characters each.";
   }
   return null;
 }
@@ -612,6 +634,7 @@ app.post("/api/auth/logout", async (req, res, next) => {
 app.get("/admin.html", requireAdminPage);
 app.get("/host.html", requireAdminPage);
 app.get("/play.html", requirePlayerPage);
+app.get("/display.html", requireDisplayPage);
 
 app.get("/api/questions", requireAdmin, (req, res) => {
   res.json(questions);
@@ -619,6 +642,88 @@ app.get("/api/questions", requireAdmin, (req, res) => {
 
 app.get("/api/round-question-banks", requireAdmin, (_req, res) => {
   res.json(roundQuestionBanks);
+});
+
+app.post("/api/admin/media", requireAdmin, async (req, res, next) => {
+  const mediaTypes = {
+    jpg: { folder: "images", mime: "image/jpeg" }, jpeg: { folder: "images", mime: "image/jpeg" },
+    png: { folder: "images", mime: "image/png" }, gif: { folder: "images", mime: "image/gif" },
+    webp: { folder: "images", mime: "image/webp" },
+    mp4: { folder: "videos", mime: "video/mp4" }, m4v: { folder: "videos", mime: "video/mp4" },
+    webm: { folder: "videos", mime: "video/webm" }, ogg: { folder: "videos", mime: "video/ogg" },
+    ogv: { folder: "videos", mime: "video/ogg" }, mov: { folder: "videos", mime: "video/quicktime" },
+    qt: { folder: "videos", mime: "video/quicktime" }, avi: { folder: "videos", mime: "video/x-msvideo" },
+    mkv: { folder: "videos", mime: "video/x-matroska" }, mpg: { folder: "videos", mime: "video/mpeg" },
+    mpeg: { folder: "videos", mime: "video/mpeg" }, "3gp": { folder: "videos", mime: "video/3gpp" },
+    ts: { folder: "videos", mime: "video/mp2t" }
+  };
+  const extension = String(req.headers["x-file-extension"] || "").replace(/^\./, "").toLowerCase();
+  const media = /^[a-z0-9]{1,8}$/.test(extension) ? mediaTypes[extension] : null;
+  if (!media) return res.status(400).json({ error: "Choose a supported image or video file (MP4, M4V, WebM, MOV, Ogg, AVI, MKV, MPEG, 3GP, or TS)." });
+
+  const directory = path.join(PUBLIC_DIR, media.folder);
+  const fileName = `${crypto.randomUUID()}.${extension}`;
+  const temporaryPath = path.join(directory, `${fileName}.upload`);
+  const finalPath = path.join(directory, fileName);
+  let size = 0;
+  let header = Buffer.alloc(32);
+  let headerLength = 0;
+  const sizeLimit = new Transform({
+    transform(chunk, encoding, callback) {
+      size += chunk.length;
+      if (size > MAX_MEDIA_BYTES) {
+        const error = new Error("The selected file is larger than the 1 GB upload limit.");
+        error.status = 413;
+        callback(error);
+        return;
+      }
+      if (headerLength < header.length) {
+        const part = chunk.subarray(0, header.length - headerLength);
+        part.copy(header, headerLength);
+        headerLength += part.length;
+      }
+      callback(null, chunk);
+    }
+  });
+
+  try {
+    await fs.mkdir(directory, { recursive: true });
+    await pipeline(req, sizeLimit, fsStream.createWriteStream(temporaryPath, { flags: "wx" }));
+    if (!size) {
+      await fs.rm(temporaryPath, { force: true });
+      return res.status(400).json({ error: "The selected file is empty." });
+    }
+    const bytes = header.subarray(0, headerLength);
+    const isImage = media.folder === "images";
+    const validSignature = extension === "jpg" || extension === "jpeg"
+      ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      : extension === "png"
+        ? bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+        : extension === "gif"
+          ? bytes.subarray(0, 6).toString("ascii").startsWith("GIF8")
+          : extension === "webp"
+            ? bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP"
+            : extension === "ogg" || extension === "ogv"
+              ? bytes.subarray(0, 4).toString("ascii") === "OggS"
+              : extension === "avi"
+                ? bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "AVI "
+                : extension === "mpeg" || extension === "mpg"
+                  ? bytes.subarray(0, 4).equals(Buffer.from([0, 0, 1, 0xb3])) || bytes.subarray(0, 4).equals(Buffer.from([0, 0, 1, 0xba]))
+                  : extension === "ts"
+                    ? bytes[0] === 0x47
+                    : !isImage && bytes.length >= 12 && bytes.subarray(4, 8).toString("ascii") === "ftyp" ||
+                      (extension === "webm" || extension === "mkv") && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+    if (!validSignature) {
+      await fs.rm(temporaryPath, { force: true });
+      return res.status(400).json({ error: "The selected file contents do not match its file type." });
+    }
+    await fs.rename(temporaryPath, finalPath);
+    res.status(201).json({ path: `/${media.folder}/${fileName}`, mediaType: media.mime, size });
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+    if (error.status === 413) return res.status(413).json({ error: error.message });
+    next(error);
+  }
 });
 
 app.post("/api/round-question-banks", requireAdmin, async (req, res, next) => {
@@ -630,8 +735,7 @@ app.post("/api/round-question-banks", requireAdmin, async (req, res, next) => {
     res.json({
       rapidCommonCount: roundQuestionBanks.rapidFire.commonQuestions.length,
       rapidAnnouncerCount: roundQuestionBanks.rapidFire.announcerQuestions.length,
-      practicalThemeCount: roundQuestionBanks.practical.themes.length,
-      practicalBuzzerCount: roundQuestionBanks.practical.buzzerQuestions.length
+      practicalThemeCount: roundQuestionBanks.practical.themes.length
     });
   } catch (saveError) {
     next(saveError);
@@ -665,11 +769,11 @@ app.patch("/api/admin/users/:id/role", requireAdmin, async (req, res, next) => {
   const role = req.body?.role;
   const target = users.find((user) => user.id === id);
   if (!target) return res.status(404).json({ error: "User not found." });
-  if (role !== "admin" && role !== "user") return res.status(400).json({ error: "Role must be user or admin." });
+  if (!["admin", "shower", "user"].includes(role)) return res.status(400).json({ error: "Role must be user, shower, or admin." });
   if (req.user.id === id && role !== "admin") {
     return res.status(400).json({ error: "You cannot remove your own administrator access." });
   }
-  if (target.role === "admin" && role === "user" && users.filter((user) => user.role === "admin").length <= 1) {
+  if (target.role === "admin" && role !== "admin" && users.filter((user) => user.role === "admin").length <= 1) {
     return res.status(400).json({ error: "At least one administrator account must remain." });
   }
   try {
@@ -684,8 +788,8 @@ app.get("/api/admin/games", requireAdmin, (req, res) => {
   const ongoingStatuses = new Set([
     "lobby", "rapid-rules", "rapid-common", "rapid-turns", "rapid-turn",
     "quiz-rules", "question", "paused", "review", "practical-rules",
-    "practical-theme", "practical-video", "practical-question", "buzzer",
-    "buzzer-ready", "buzzer-results", "paper-marks", "paper-results"
+    "practical-theme", "practical-video", "practical-question", "practical-question-review", "buzzer",
+    "buzzer-ready", "buzzer-review", "buzzer-results", "paper-marks", "paper-results"
   ]);
   res.json(
     [...rooms.values()]
@@ -821,8 +925,7 @@ app.post("/api/admin/games", requireAdmin, async (req, res, next) => {
       roundRules,
       rapidQuestion,
       rapidAnnouncerQuestions: roundQuestionBanks.rapidFire.announcerQuestions,
-      practicalThemes: roundQuestionBanks.practical.themes,
-      buzzerQuestions: roundQuestionBanks.practical.buzzerQuestions
+      practicalThemes: roundQuestionBanks.practical.themes
     });
     await recordGame(room);
     res.status(201).json(gameSummary(room));
@@ -834,6 +937,7 @@ app.post("/api/admin/games", requireAdmin, async (req, res, next) => {
 app.post("/api/admin/games/:pin/:action", requireAdmin, (req, res) => {
   const room = rooms.get(req.params.pin);
   if (!room) return res.status(404).json({ error: "Game not found." });
+  ensureRoomKeys(room);
   const action = req.params.action;
   const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
   let error = null;
@@ -849,49 +953,96 @@ app.post("/api/admin/games/:pin/:action", requireAdmin, (req, res) => {
     if (room.status !== "rapid-rules") error = "Rapid Fire rules must be shown before starting.";
     else startRapidCommon(room);
   } else if (action === "rapid-turn") {
-    error = beginRapidTurn(room, body.duration);
+    error = beginRapidTurn(room, body.duration, body.playerId);
   } else if (action === "rapid-turn-finish") {
-    error = finishRapidTurn(room, body.answeredCount, body.pointsPerQuestion, body.manualPoints);
+    error = finishRapidTurn(room, body.marks);
+  } else if (action === "rapid-next") {
+    error = continueAfterRapidFire(room);
   } else if (action === "quiz-start") {
     if (room.status !== "quiz-rules") error = "Quiz rules must be shown before starting.";
     else startQuizRound(room);
   } else if (action === "practical-start") {
-    if (!Number.isInteger(body.points) || body.points < 1 || body.points > 1000000) {
-      error = "Practical points must be a whole number from 1 to 1,000,000.";
-    } else if (!Number.isInteger(body.timeLimit) || body.timeLimit < 5 || body.timeLimit > 120) {
+    if (!Number.isInteger(body.timeLimit) || body.timeLimit < 5 || body.timeLimit > 120) {
       error = "Practical question time must be from 5 to 120 seconds.";
     } else {
-      room.practicalPoints = body.points;
       room.practicalTimeLimit = body.timeLimit;
       error = beginPracticalStage(room);
     }
+  } else if (action === "practical-resolve") {
+    error = resolvePracticalQuestion(room, body.outcome);
+  } else if (action === "practical-stop-timer") {
+    if (room.status === "practical-question") {
+      clearRoomTimer(room);
+      room.practicalDeadline = 0;
+      room.status = "practical-question-review";
+      emitRoundState(room);
+    } else if (room.status === "practical-question-review") {
+      // The countdown may expire between the Admin click and this request.
+      // Treat that race as a successful stop so the control never reports a false failure.
+      clearRoomTimer(room);
+      room.practicalDeadline = 0;
+      emitRoundState(room);
+    } else {
+      error = "The practical question timer is not active.";
+    }
+  } else if (action === "practical-timeout") {
+    if (!["practical-question", "practical-question-review"].includes(room.status)) {
+      error = "The private practical question is not active.";
+    } else {
+      if (room.status === "practical-question") {
+        clearRoomTimer(room);
+        room.practicalDeadline = 0;
+        room.practicalPendingAnswer = "";
+        room.status = "practical-question-review";
+      }
+      error = resolvePracticalQuestion(room, "unanswered");
+    }
+  } else if (action === "practical-next") {
+    error = continuePracticalTheme(room);
   } else if (action === "practical-video-next") {
     if (room.status !== "practical-video") error = "There is no practical video playing.";
     else startPracticalQuestion(room);
+  } else if (action === "practical-theme") {
+    error = showPracticalVideo(room, body.theme);
   } else if (action === "buzzer-start") {
-    error = startBuzzer(room, body.question, body.duration);
+    error = startBuzzer(room, body.duration);
   } else if (action === "buzzer-close") {
-    if (room.status !== "buzzer") error = "The buzzer is not collecting presses.";
-    else {
+    if (room.status === "buzzer") {
       clearRoomTimer(room);
-      room.buzzer.status = "ready";
+      room.buzzer.status = "closed";
+      room.buzzer.deadline = 0;
       room.status = "buzzer-ready";
       emitRoundState(room);
+    } else if (room.status === "buzzer-ready" && room.buzzer.status === "closed") {
+      // The buzz window may expire just as the Admin clicks Stop timer.
+      clearRoomTimer(room);
+      room.buzzer.deadline = 0;
+      emitRoundState(room);
+    } else {
+      error = "The buzzer is not collecting presses.";
+    }
+  } else if (action === "buzzer-stop-timer") {
+    if (room.status === "buzzer-ready" && room.buzzer.status === "chance") {
+      clearRoomTimer(room);
+      room.buzzer.deadline = 0;
+      room.buzzer.status = "review";
+      room.status = "buzzer-review";
+      emitRoundState(room);
+    } else if (room.status !== "buzzer-review" || room.buzzer.status !== "review") {
+      error = "There is no active buzzer answer timer to stop.";
     }
   } else if (action === "buzzer-chance") {
     error = grantBuzzerChance(room, body.duration);
   } else if (action === "buzzer-resolve") {
-    if (typeof body.correct !== "boolean" || !Number.isInteger(body.points) || body.points < 0 || body.points > 1000000) {
-      error = "Set whether the answer is correct and a point value from 0 to 1,000,000.";
-    } else {
-      error = resolveBuzzerChance(room, body.correct, body.points, body.correct ? "correct" : "wrong");
-    }
+    error = resolveBuzzerChance(room, body.outcome);
+  } else if (action === "buzzer-finish") {
+    error = finishBuzzerWithoutSecond(room);
   } else if (action === "round-next") {
-    error = continueAfterPractical(room);
-  } else if (action === "paper-start") {
-    error = startPaperMarks(room);
+    error = continuePracticalTheme(room);
   } else if (action === "paper-submit") {
     error = submitPaperMarks(room, body.marks);
+  } else if (action === "paper-add") {
+    error = addSingleMark(room, body.playerId, body.marks);
   } else if (action === "finish") {
     error = finishCompetition(room);
   } else {
@@ -906,8 +1057,10 @@ app.patch("/api/admin/games/:pin/permissions", requireAdmin, (req, res) => {
   if (!room) return res.status(404).json({ error: "Game not found." });
   const updates = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
   for (const key of Object.keys(DEFAULT_PERMISSIONS)) {
+    if (key === "showUserFinalReport") continue;
     if (typeof updates[key] === "boolean") room.permissions[key] = updates[key];
   }
+  room.permissions.showUserFinalReport = true;
   if (room.status === "review") {
     emitRoom(room, "game:review", reviewPayload(room));
     emitPlayerFeedback(room);
@@ -924,12 +1077,38 @@ app.get("/api/admin/reports", requireAdmin, (req, res) => {
   })).filter((game) => game.report));
 });
 
+app.delete("/api/admin/reports/:id", requireAdmin, async (req, res, next) => {
+  const report = gameHistory.find((game) => game.id === req.params.id && game.report);
+  if (!report) return res.status(404).json({ error: "Completed report not found." });
+
+  const room = [...rooms.values()].find((item) => item.id === report.id);
+  const previousHistory = gameHistory;
+  const previousDeleted = room?.reportDeleted;
+  gameHistory = gameHistory.filter((game) => game.id !== report.id);
+  if (room) room.reportDeleted = true;
+  try {
+    await persistGameHistory();
+    res.json({ deleted: true });
+  } catch (error) {
+    gameHistory = previousHistory;
+    if (room) room.reportDeleted = previousDeleted;
+    next(error);
+  }
+});
+
 app.use("/api", (err, req, res, next) => {
   if (res.headersSent) return next(err);
   console.error("API request failed:", err);
-  res.status(500).json({ error: "The request could not be completed." });
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+  const message = status === 413
+    ? "The selected file is larger than the 1 GB upload limit."
+    : status >= 500 && err.message
+      ? `Upload failed: ${err.message}`
+      : "The request could not be completed.";
+  res.status(status).json({ error: message });
 });
 
+app.use("/buzzer", express.static(path.join(__dirname, "public", "Buzzer")));
 app.use(express.static(path.join(__dirname, "public")));
 
 function createPin() {
@@ -984,11 +1163,7 @@ function hostRoomState(room) {
     pin: room.pin,
     title: room.title,
     status: room.status,
-    players: [...room.players.values()].map((player) => {
-      const entry = publicPlayer(player);
-      if (!room.permissions.showTeamTotalToPlayers) delete entry.score;
-      return entry;
-    }),
+    players: [...room.players.values()].map((player) => ({ id: player.userId, nickname: player.nickname })),
     questionCount: room.questions.length,
     currentQuestion: room.currentIndex + 1,
     round: room.round,
@@ -1010,13 +1185,17 @@ function gameSummary(room) {
     permissions: { ...room.permissions },
     round: room.round,
     rapidOrder: room.rapidOrder.map(({ id, nickname, rank }) => ({ id, nickname, rank })),
+    practicalOrder: room.practicalOrder.map(({ id, nickname, rank }) => ({ id, nickname, rank })),
+    activePlayerId: room.activePlayerId,
     rapidQuestion: { ...room.rapidQuestion, options: [...room.rapidQuestion.options] },
     rapidAnnouncerQuestions: [...room.rapidAnnouncerQuestions],
     practicalThemes: room.practicalThemes.map((theme) => ({ ...theme })),
-    buzzerQuestions: [...room.buzzerQuestions],
+    usedPracticalThemes: [...room.usedPracticalThemes],
     practicalIndex: room.practicalIndex || 0,
-    practicalPoints: room.practicalPoints,
+    practicalTurns: room.practicalTurns || 0,
     practicalTimeLimit: room.practicalTimeLimit,
+    practicalPendingAnswer: room.practicalPendingAnswer,
+    selectedTheme: room.selectedTheme ? { ...room.selectedTheme } : null,
     quizResults: room.quizResults.map((item) => ({ ...item })),
     rapidTurn: room.rapidTurn ? { ...room.rapidTurn } : null,
     rapidResults: room.rapidResults.map((item) => ({ ...item })),
@@ -1027,7 +1206,9 @@ function gameSummary(room) {
       status: room.buzzer.status,
       queue: room.buzzer.queue.map((id) => room.players.get(id)?.nickname || "Participant"),
       chanceIndex: room.buzzer.chanceIndex,
-      pendingResponse: room.buzzer.pendingResponse || ""
+      pendingResponse: room.buzzer.pendingResponse || "",
+      windowSeconds: room.buzzer.windowSeconds || 20,
+      canReopen: room.buzzer.queue.length < 2 && room.buzzer.queue.length < room.players.size
     },
     report: room.status === "finished" ? buildReport(room) : null
   };
@@ -1047,29 +1228,42 @@ function publicRoundState(room) {
     roundNumber: getRoundNumber(room),
     nextRound: nextScheduledRound(room, room.round),
     permissions: { ...room.permissions },
-    leaderboard: room.status === "buzzer-results" ||
-      (room.status === "finished" && room.permissions.showUserFinalReport)
-      ? publicLeaderboard(room)
+    leaderboard: room.status === "finished"
+      ? leaderboard(room).map((player) => ({
+          ...player,
+          paperMarks: room.players.get(player.id)?.paperMarks || 0
+        }))
       : [],
     rapidOrder: room.rapidOrder.map(({ id, nickname, rank }) => ({ id, nickname, rank })),
+    practicalIndex: room.practicalIndex || 0,
+    practicalTurns: room.practicalTurns || 0,
+    practicalQueue: room.status === "practical-theme" && room.practicalOrder[room.practicalIndex]
+      ? [{ id: room.practicalOrder[room.practicalIndex].id, nickname: room.practicalOrder[room.practicalIndex].nickname, rank: room.practicalIndex + 1 }]
+      : [],
+    practicalOrder: room.practicalOrder.map(({ id, nickname, rank }) => ({ id, nickname, rank })),
+    rapidCompletedCount: room.rapidResults.length,
     rapidTurn: room.rapidTurn ? { nickname: room.rapidTurn.nickname, deadline: room.rapidTurn.deadline } : null,
     activePlayer: room.activePlayerId ? room.players.get(room.activePlayerId)?.nickname || null : null,
     activePlayerId: room.activePlayerId,
-    themes: room.status === "practical-theme" ? room.practicalThemes.map(({ name }) => name) : [],
+    themes: room.status === "practical-theme"
+      ? room.practicalThemes.filter(({ name }) => !room.usedPracticalThemes.includes(name)).map(({ name }) => name)
+      : [],
+    usedThemes: [...room.usedPracticalThemes],
     theme: room.selectedTheme ? { name: room.selectedTheme.name, videoUrl: room.selectedTheme.videoUrl } : null,
     commonQuestion: room.status === "rapid-common" ? room.rapidQuestion.question : "",
     rapidDeadline: room.status === "rapid-common" ? room.rapidDeadline : 0,
     practicalDeadline: room.status === "practical-question" ? room.practicalDeadline : 0,
-    videoDeadline: room.status === "practical-video" ? room.videoDeadline : 0,
-    ...(room.permissions.showTeamTotalToPlayers
+    ...(room.permissions.showTeamTotalToPlayers && !["paper-marks", "paper-results"].includes(room.status)
       ? { totals: [...room.players.values()].map(({ nickname, score }) => ({ nickname, score })) }
       : {}),
     buzzer: {
-      question: room.buzzer.question,
+      question: "",
       status: room.buzzer.status,
       queue: room.buzzer.queue.map((id) => room.players.get(id)?.nickname || "Participant"),
       chanceIndex: room.buzzer.chanceIndex,
-      deadline: room.buzzer.deadline
+      deadline: room.buzzer.deadline,
+      windowSeconds: room.buzzer.windowSeconds || 20,
+      canReopen: room.buzzer.queue.length < 2 && room.buzzer.queue.length < room.players.size
     }
   };
   if (room.status === "practical-question" && room.activePlayerId) {
@@ -1083,6 +1277,18 @@ function publicRoundState(room) {
 
 function emitRoundState(room) {
   emitRoom(room, "game:round-state", publicRoundState(room));
+  if (room.hostSocketId) {
+    io.to(room.hostSocketId).emit("game:practical-admin-state", {
+      selectedTheme: room.selectedTheme ? {
+        name: room.selectedTheme.name,
+        question: room.selectedTheme.question,
+        answer: room.selectedTheme.answer,
+        buzzerQuestion: room.selectedTheme.buzzerQuestion,
+        buzzerAnswer: room.selectedTheme.buzzerAnswer
+      } : null,
+      practicalTimeLimit: room.practicalTimeLimit
+    });
+  }
   saveGame(room);
 }
 
@@ -1095,8 +1301,9 @@ function buildReport(room) {
       rapidFireCommon: room.rapidQuestion.question,
       rapidFireAnnouncer: [...room.rapidAnnouncerQuestions],
       quiz: room.questions.map(({ question }) => question),
-      practicalThemes: room.practicalThemes.map(({ name, question }) => ({ name, question })),
-      buzzer: [...room.buzzerQuestions]
+      practicalThemes: room.practicalThemes.map(({ name, question, answer, buzzerQuestion, buzzerAnswer }) => ({
+        name, question, answer, buzzerQuestion, buzzerAnswer
+      }))
     },
     rounds: {
       rapidFire: room.rapidResults.map((item) => ({ ...item })),
@@ -1118,8 +1325,7 @@ function createGameRoom({
   roundRules,
   rapidQuestion,
   rapidAnnouncerQuestions,
-  practicalThemes,
-  buzzerQuestions
+  practicalThemes
 }) {
   const pin = createPin();
   const room = {
@@ -1132,7 +1338,8 @@ function createGameRoom({
     rapidQuestion: { ...rapidQuestion, options: [...rapidQuestion.options] },
     rapidAnnouncerQuestions: [...rapidAnnouncerQuestions],
     practicalThemes: practicalThemes.map((theme) => ({ ...theme })),
-    buzzerQuestions: [...buzzerQuestions],
+    usedPracticalThemes: [],
+    practicalOrder: [],
     status: "lobby",
     players: new Map(),
     questions: selectedQuestions.map((question) => ({ ...question, points: question.points || settings.n1, image: question.image || "", options: [...question.options] })),
@@ -1157,14 +1364,16 @@ function createGameRoom({
     rapidResults: [],
     quizResults: [],
     practicalResults: [],
+    practicalPendingAnswer: "",
     paperMarks: [],
     activePlayerId: null,
+    practicalIndex: 0,
+    practicalTurns: 0,
     selectedTheme: null,
-    practicalPoints: settings.n1,
     practicalDeadline: 0,
     practicalTimeLimit: 20,
     rapidTurn: null,
-    buzzer: { question: "", status: "waiting", queue: [], chanceIndex: -1, deadline: 0, results: [] },
+    buzzer: { question: "", status: "waiting", queue: [], chanceIndex: -1, deadline: 0, windowSeconds: 20, results: [] },
     timer: null,
     cleanupTimer: setTimeout(() => cleanupRoom(room), ROOM_TTL_MS)
   };
@@ -1173,8 +1382,31 @@ function createGameRoom({
   return room;
 }
 
+function ensureRoomKeys(room) {
+  if (!Number.isInteger(room.practicalIndex)) room.practicalIndex = 0;
+  if (!Number.isInteger(room.practicalTurns)) room.practicalTurns = Math.min(room.usedPracticalThemes.length, room.practicalOrder.length);
+  if (!Number.isInteger(room.practicalTimeLimit)) room.practicalTimeLimit = 20;
+  if (!Array.isArray(room.paperMarks)) room.paperMarks = [];
+  if (!Array.isArray(room.rapidResults)) room.rapidResults = [];
+  if (!Array.isArray(room.quizResults)) room.quizResults = [];
+  if (!Array.isArray(room.practicalResults)) room.practicalResults = [];
+  if (!Array.isArray(room.usedPracticalThemes)) room.usedPracticalThemes = [];
+  if (!Array.isArray(room.practicalOrder)) room.practicalOrder = [];
+  if (!Array.isArray(room.rapidOrder)) room.rapidOrder = [];
+  if (!room.buzzer || typeof room.buzzer !== "object") room.buzzer = { question: "", status: "waiting", queue: [], chanceIndex: -1, deadline: 0, windowSeconds: 20, results: [] };
+  if (!Array.isArray(room.buzzer.queue)) room.buzzer.queue = [];
+  if (!Array.isArray(room.buzzer.results)) room.buzzer.results = [];
+  if (!room.roundRules) room.roundRules = { ...DEFAULT_ROUND_RULES };
+  if (!room.permissions) room.permissions = { ...DEFAULT_PERMISSIONS };
+  if (!room.settings) room.settings = { startingScore: 0, n1: 20, n2: 5 };
+}
+
 function emitRoom(room, event, payload) {
   io.to(room.pin).emit(event, payload);
+}
+
+function emitTimerEnd(room, round, deadline) {
+  emitRoom(room, "game:timer-end", { round, deadline });
 }
 
 function cleanupRoom(room) {
@@ -1282,16 +1514,18 @@ function startQuestion(room) {
     deadline: room.questionEndsAt
   });
   emitHostQuestion(room);
-  room.timer = setTimeout(() => beginReview(room), question.timeLimit * 1000);
+  room.timer = setTimeout(() => {
+    emitTimerEnd(room, "main-quiz", room.questionEndsAt);
+    beginReview(room);
+  }, question.timeLimit * 1000);
   emitAnswerCount(room);
   saveGame(room);
 }
 
 function emitHostQuestion(room) {
-  if (!room.hostSocketId) return;
   const question = room.questions[room.currentIndex];
   if (!question) return;
-  io.to(room.hostSocketId).emit("game:host-question", {
+  const hostQuestion = {
     ...question,
     index: room.currentIndex + 1,
     total: room.questions.length,
@@ -1302,6 +1536,18 @@ function emitHostQuestion(room) {
       nickname: player.nickname,
       answered: player.answerIndex !== null
     }))
+  };
+  if (room.hostSocketId) io.to(room.hostSocketId).emit("game:host-question", hostQuestion);
+  io.to(`display:${room.pin}`).emit("game:host-question", {
+    question: question.question,
+    options: question.options,
+    image: question.image || "",
+    timeLimit: question.timeLimit,
+    points: question.points,
+    index: room.currentIndex + 1,
+    total: room.questions.length,
+    startedAt: room.questionStartedAt,
+    deadline: room.questionEndsAt
   });
 }
 
@@ -1339,7 +1585,10 @@ function resumeGame(room) {
   room.pausedDurationMs += now - room.pausedAt;
   room.questionEndsAt = now + room.remainingMs;
   room.status = "question";
-  room.timer = setTimeout(() => beginReview(room), room.remainingMs);
+  room.timer = setTimeout(() => {
+    emitTimerEnd(room, "main-quiz", room.questionEndsAt);
+    beginReview(room);
+  }, room.remainingMs);
   emitRoom(room, "game:resumed", { deadline: room.questionEndsAt });
   emitHostQuestion(room);
   saveGame(room);
@@ -1369,7 +1618,10 @@ function startRapidCommon(room) {
     timeLimit: question.timeLimit,
     deadline: room.rapidDeadline
   });
-  room.timer = setTimeout(() => finishRapidCommon(room), question.timeLimit * 1000);
+  room.timer = setTimeout(() => {
+    emitTimerEnd(room, "rapid-fire", room.rapidDeadline);
+    finishRapidCommon(room);
+  }, question.timeLimit * 1000);
   emitRoundState(room);
 }
 
@@ -1385,37 +1637,39 @@ function finishRapidCommon(room) {
         a.nickname.localeCompare(b.nickname);
     })
     .map((player, index) => ({ id: player.userId, nickname: player.nickname, rank: index + 1 }));
-  room.rapidTurnIndex = -1;
   room.status = "rapid-turns";
   emitRoundState(room);
 }
 
-function beginRapidTurn(room, duration) {
+function beginRapidTurn(room, duration, playerId) {
   if (room.status !== "rapid-turns") return "The rapid-fire common question is not complete.";
   if (!Number.isInteger(duration) || duration < 5 || duration > 600) return "Turn duration must be from 5 to 600 seconds.";
-  const nextIndex = room.rapidTurnIndex + 1;
-  if (nextIndex >= room.rapidOrder.length) {
-    room.rapidTurn = null;
-    advanceAfterRound(room, "rapid-fire");
-    return null;
-  }
-  room.rapidTurnIndex = nextIndex;
+  const nextIndex = room.rapidResults.length;
+  if (nextIndex >= room.rapidOrder.length) return "All Rapid Fire turns are complete. Continue to the next round.";
   const user = room.rapidOrder[nextIndex];
+  if (typeof playerId !== "string" || playerId !== user.id) {
+    return `Select ${user.nickname} next in the Rapid Fire calling order.`;
+  }
   room.rapidTurn = { userId: user.id, nickname: user.nickname, duration, deadline: Date.now() + duration * 1000 };
   room.status = "rapid-turn";
-  room.timer = setTimeout(() => finishRapidTurn(room, 0, 0, 0), duration * 1000);
+  room.timer = setTimeout(() => {
+    if (room.status !== "rapid-turn" || !room.rapidTurn) return;
+    emitTimerEnd(room, "rapid-fire", room.rapidTurn.deadline);
+    room.timer = null;
+    emitRoundState(room);
+  }, duration * 1000);
   emitRoom(room, "game:rapid-turn", publicRoundState(room));
   emitRoundState(room);
   return null;
 }
 
-function finishRapidTurn(room, answeredCount, pointsPerQuestion, manualPoints) {
+function finishRapidTurn(room, marks) {
   if (room.status !== "rapid-turn" || !room.rapidTurn) return "There is no active rapid-fire turn.";
+  if (!Number.isSafeInteger(marks) || marks < 0 || marks > 1000000) {
+    return "Marks must be a whole number from 0 to 1,000,000.";
+  }
   clearRoomTimer(room);
-  const count = Number.isInteger(answeredCount) ? Math.min(1000, Math.max(0, answeredCount)) : 0;
-  const each = Number.isInteger(pointsPerQuestion) ? Math.min(100000, Math.max(0, pointsPerQuestion)) : 0;
-  const manual = Number.isInteger(manualPoints) ? Math.min(1000000, Math.max(0, manualPoints)) : 0;
-  const points = count * each + manual;
+  const points = marks;
   const player = room.players.get(room.rapidTurn.userId);
   if (player) {
     player.score += points;
@@ -1423,21 +1677,25 @@ function finishRapidTurn(room, answeredCount, pointsPerQuestion, manualPoints) {
   }
   room.rapidResults.push({
     nickname: room.rapidTurn.nickname,
-    answeredCount: count,
-    pointsPerQuestion: each,
-    calculatedPoints: count * each,
-    manualPoints: manual,
+    marks,
     totalPoints: points
   });
   room.rapidTurn = null;
-  const completed = room.rapidTurnIndex >= room.rapidOrder.length - 1;
   room.status = "rapid-turns";
   emitRoom(room, "game:rapid-result", {
     nickname: player?.nickname || "Participant",
     ...(room.permissions.showTeamTotalToPlayers ? { points } : {})
   });
-  if (completed) advanceAfterRound(room, "rapid-fire");
-  else emitRoundState(room);
+  emitRoundState(room);
+  return null;
+}
+
+function continueAfterRapidFire(room) {
+  if (room.status !== "rapid-turns") return "Rapid Fire turns are not ready to continue.";
+  if (room.rapidResults.length < room.rapidOrder.length) {
+    return "Record marks for every participant before continuing.";
+  }
+  advanceAfterRound(room, "rapid-fire");
   return null;
 }
 
@@ -1452,32 +1710,39 @@ function startQuizRound(room) {
 function beginPracticalStage(room) {
   if (room.status !== "practical-rules") return "Practical rules must be shown before starting.";
   room.practicalIndex = 0;
-  room.status = room.rapidOrder.length ? "practical-theme" : "buzzer-ready";
+  room.practicalOrder = room.rapidOrder.slice(0, room.practicalThemes.length);
+  room.practicalTurns = 0;
   room.round = "practical";
-  room.activePlayerId = room.rapidOrder[0]?.id || null;
+  room.activePlayerId = room.practicalOrder[0]?.id || null;
+  room.status = room.activePlayerId ? "practical-theme" : "buzzer-results";
+  if (!room.activePlayerId) {
+    advanceAfterRound(room, "practical");
+    return null;
+  }
   emitRoom(room, "game:practical-themes", {
     activePlayerId: room.activePlayerId,
-    activePlayer: room.rapidOrder[0]?.nickname || null,
+    activePlayer: room.practicalOrder[0].nickname,
     themes: room.practicalThemes.map(({ name }) => name)
   });
   emitRoundState(room);
+  return null;
 }
 
 function showPracticalVideo(room, theme) {
   if (room.status !== "practical-theme" || !room.activePlayerId) return "No participant is choosing a practical theme.";
   const selected = room.practicalThemes.find((item) => item.name === theme);
-  if (!selected) return "Select one of the available themes.";
+  if (!selected || room.usedPracticalThemes.includes(selected.name)) return "Select an available theme that has not already been used.";
+  clearRoomTimer(room);
+  room.practicalDeadline = 0;
   room.selectedTheme = selected;
+  room.usedPracticalThemes.push(selected.name);
   room.status = "practical-video";
-  room.videoDeadline = Date.now() + 30000;
   emitRoom(room, "game:practical-video", {
     activePlayerId: room.activePlayerId,
     activePlayer: room.players.get(room.activePlayerId)?.nickname || "",
-    theme: { name: selected.name, videoUrl: selected.videoUrl },
-    duration: 30
+    theme: { name: selected.name, videoUrl: selected.videoUrl }
   });
   emitRoundState(room);
-  room.timer = setTimeout(() => startPracticalQuestion(room), 30000);
   return null;
 }
 
@@ -1485,117 +1750,244 @@ function startPracticalQuestion(room) {
   if (room.status !== "practical-video" || !room.selectedTheme) return;
   clearRoomTimer(room);
   room.status = "practical-question";
+  room.practicalPendingAnswer = "";
   room.practicalDeadline = Date.now() + room.practicalTimeLimit * 1000;
   const player = room.players.get(room.activePlayerId);
   if (player) io.to(player.socketId).emit("game:practical-question", {
-    question: room.selectedTheme.question,
     deadline: room.practicalDeadline
   });
   emitRoundState(room);
-  room.timer = setTimeout(() => finishPracticalQuestion(room, false), room.practicalTimeLimit * 1000);
+  room.timer = setTimeout(() => {
+    if (room.status !== "practical-question") return;
+    emitTimerEnd(room, "practical", room.practicalDeadline);
+    room.timer = null;
+    room.practicalDeadline = 0;
+    room.status = "practical-question-review";
+    emitRoundState(room);
+  }, room.practicalTimeLimit * 1000);
 }
 
-function finishPracticalQuestion(room, correct) {
-  if (room.status !== "practical-question") return;
+function resolvePracticalQuestion(room, outcome) {
+  if (!["correct", "wrong", "unanswered"].includes(outcome)) return "Choose Correct, Wrong, or Not Answered.";
+  if (room.status === "practical-question") {
+    clearRoomTimer(room);
+    room.practicalDeadline = 0;
+    room.status = "practical-question-review";
+  }
+  if (room.status !== "practical-question-review") {
+    return "The private practical question is not ready to score.";
+  }
   clearRoomTimer(room);
   const player = room.players.get(room.activePlayerId);
-  const points = correct && player ? room.practicalPoints : 0;
+  const points = outcome === "correct" ? 10 : outcome === "wrong" ? -5 : 0;
   if (player) {
     player.score += points;
     player.roundScore = (player.roundScore || 0) + points;
+    player.practicalTurns += 1;
   }
-  room.practicalResults.push({ nickname: player?.nickname || "Participant", theme: room.selectedTheme.name, correct: Boolean(correct), points });
+  room.practicalResults.push({
+    nickname: player?.nickname || "Participant",
+    theme: room.selectedTheme.name,
+    question: room.selectedTheme.question,
+    expectedAnswer: room.selectedTheme.answer,
+    answer: room.practicalPendingAnswer,
+    outcome,
+    points
+  });
   if (player) io.to(player.socketId).emit("game:practical-result", {
-    correct: Boolean(correct),
+    outcome,
     ...(room.permissions.showTeamTotalToPlayers ? { points } : {})
   });
-  room.practicalIndex += 1;
-  room.activePlayerId = room.rapidOrder[room.practicalIndex]?.id || null;
-  room.selectedTheme = null;
-  room.status = room.activePlayerId ? "practical-theme" : "buzzer-ready";
-  emitRoom(room, "game:practical-next", { activePlayerId: room.activePlayerId, activePlayer: room.players.get(room.activePlayerId)?.nickname || null });
+  room.practicalPendingAnswer = "";
+  room.buzzer = {
+    ...room.buzzer,
+    question: room.selectedTheme.buzzerQuestion,
+    status: "waiting",
+    queue: [],
+    chanceIndex: -1,
+    deadline: 0,
+    pendingResponse: "",
+    windowSeconds: 20
+  };
+  room.status = "buzzer-ready";
   emitRoundState(room);
+  return null;
 }
 
-function startBuzzer(room, question, duration) {
-  if (room.status !== "buzzer-ready") return "The individual practical stage is not complete.";
-  if (typeof question !== "string" || !question.trim() || question.trim().length > 500) return "Enter a buzzer question of 1–500 characters.";
-  if (!room.buzzerQuestions.includes(question.trim())) return "Select a buzzer question from the saved Practical Quiz question bank.";
-  if (!Number.isInteger(duration) || duration < 5 || duration > 120) return "Buzzer duration must be from 5 to 120 seconds.";
-  room.buzzer = { question: question.trim(), status: "open", queue: [], chanceIndex: -1, deadline: Date.now() + duration * 1000, results: [] };
+function startBuzzer(room, duration) {
+  if (room.status !== "buzzer-ready" || !room.selectedTheme) return "The shared question is not ready.";
+  if (!["waiting", "closed", "ready"].includes(room.buzzer.status)) return "The buzzer cannot be opened in its current state.";
+  if (room.buzzer.queue.length >= 2 || room.buzzer.queue.length >= room.players.size) {
+    return "There are no more eligible participants to buzz.";
+  }
+  if (room.buzzer.queue.length > room.buzzer.chanceIndex + 1) {
+    return "The granted buzzer chances must be completed before the buzzer reopens.";
+  }
+  room.buzzer.status = "open";
+  room.buzzer.windowSeconds = duration;
+  room.buzzer.deadline = Date.now() + duration * 1000;
   room.status = "buzzer";
   room.timer = setTimeout(() => {
     if (room.status === "buzzer" && room.buzzer.status === "open") {
+      emitTimerEnd(room, "practical", room.buzzer.deadline);
+      room.timer = null;
       room.buzzer.status = "closed";
+      room.buzzer.deadline = 0;
       room.status = "buzzer-ready";
       emitRoundState(room);
     }
   }, duration * 1000);
-  emitRoom(room, "game:buzzer-start", { question: room.buzzer.question, deadline: room.buzzer.deadline });
+  emitRoom(room, "game:buzzer-start", {
+    deadline: room.buzzer.deadline,
+    reopening: room.buzzer.queue.length > 0
+  });
   emitRoundState(room);
   return null;
 }
 
 function grantBuzzerChance(room, duration) {
-  if (room.status !== "buzzer-ready" || !room.buzzer.queue.length) return "No buzzer participant is waiting for a chance.";
+  if (room.status !== "buzzer-ready" || !["closed", "ready", "open"].includes(room.buzzer.status) || !room.buzzer.queue.length) {
+    return "No buzzer participant is waiting for a chance.";
+  }
+  clearRoomTimer(room);
   const next = room.buzzer.chanceIndex + 1;
   if (next > 1 || next >= room.buzzer.queue.length) return "There is no eligible next buzzer chance.";
-  if (next === 1 && room.buzzer.results[0]?.correct) return "A correct first answer ends the buzzer round.";
   if (!Number.isInteger(duration) || duration < 5 || duration > 120) return "Buzzer chance duration must be from 5 to 120 seconds.";
   room.buzzer.chanceIndex = next;
   room.buzzer.status = "chance";
   room.buzzer.pendingResponse = "";
+  room.buzzer.pendingOutcome = "";
   const player = room.players.get(room.buzzer.queue[next]);
   room.buzzer.deadline = Date.now() + duration * 1000;
   if (player) io.to(player.socketId).emit("game:buzzer-chance", {
-    question: room.buzzer.question,
     deadline: room.buzzer.deadline,
     chance: next + 1
   });
-  room.timer = setTimeout(() => resolveBuzzerChance(room, false, 0, "timeout"), duration * 1000);
+  room.timer = setTimeout(() => {
+    emitTimerEnd(room, "practical", room.buzzer.deadline);
+    enterBuzzerReview(room, "unanswered");
+  }, duration * 1000);
   emitRoundState(room);
   return null;
 }
 
-function resolveBuzzerChance(room, correct, points, outcome) {
-  if (room.status !== "buzzer-ready" || room.buzzer.status !== "chance") return "There is no active buzzer chance.";
+function enterBuzzerReview(room, outcome = "") {
+  if (room.status !== "buzzer-ready" || room.buzzer.status !== "chance") return;
+  clearRoomTimer(room);
+  room.buzzer.pendingOutcome = outcome;
+  room.buzzer.status = "review";
+  room.status = "buzzer-review";
+  emitRoundState(room);
+}
+
+function resolveBuzzerChance(room, outcome) {
+  if (!["correct", "wrong", "unanswered"].includes(outcome)) return "Choose Correct, Wrong, or Not Answered.";
+  if (room.status === "buzzer-ready" && room.buzzer.status === "chance") enterBuzzerReview(room);
+  if (room.status !== "buzzer-review" || room.buzzer.status !== "review") return "There is no buzzer answer waiting to be scored.";
   clearRoomTimer(room);
   const player = room.players.get(room.buzzer.queue[room.buzzer.chanceIndex]);
-  const awarded = correct && player ? points : 0;
+  const firstChance = room.buzzer.chanceIndex === 0;
+  const points = outcome === "correct" ? (firstChance ? 10 : 5) :
+    outcome === "wrong" ? (firstChance ? -5 : -3) : 0;
   if (player) {
-    player.score += awarded;
-    player.roundScore = (player.roundScore || 0) + awarded;
+    player.score += points;
+    player.roundScore = (player.roundScore || 0) + points;
   }
-  room.buzzer.results.push({ nickname: player?.nickname || "Participant", outcome, correct: Boolean(correct), points: awarded });
-  room.buzzer.status = correct || room.buzzer.chanceIndex >= 1 || room.buzzer.queue.length < 2 ? "complete" : "ready";
-  room.status = room.buzzer.status === "complete" ? "buzzer-results" : "buzzer-ready";
+  room.buzzer.results.push({
+    theme: room.selectedTheme.name,
+    question: room.buzzer.question,
+    expectedAnswer: room.selectedTheme.buzzerAnswer,
+    nickname: player?.nickname || "",
+    answer: room.buzzer.pendingResponse || "",
+    chance: room.buzzer.chanceIndex + 1,
+    outcome,
+    points
+  });
   emitRoom(room, "game:buzzer-result", {
     nickname: player?.nickname || "",
-    correct: Boolean(correct),
-    ...(room.permissions.showTeamTotalToPlayers ? { points: awarded } : {})
+    outcome,
+    ...(room.permissions.showTeamTotalToPlayers ? { points } : {})
   });
+  room.buzzer.pendingResponse = "";
+  room.buzzer.pendingOutcome = "";
+  room.buzzer.queue.push(player?.userId || `unanswered-${room.buzzer.chanceIndex}-${room.buzzer.results.length}`);
+  if (firstChance && outcome !== "correct") {
+    room.buzzer.status = "ready";
+    room.status = "buzzer-ready";
+    if (room.buzzer.queue.length === 1 && room.buzzer.queue.length < room.players.size) {
+      const error = startBuzzer(room, room.buzzer.windowSeconds || 20);
+      if (!error) return null;
+    }
+    emitRoundState(room);
+    return null;
+  }
+  room.buzzer.status = "complete";
+  room.status = "buzzer-results";
   emitRoundState(room);
   return null;
 }
 
-function canContinuePractical(room) {
-  return room.status === "buzzer-results" ||
-    (room.status === "buzzer-ready" && room.buzzer.queue.length === 0 &&
-      ["closed", "ready"].includes(room.buzzer.status) && room.buzzer.deadline > 0);
+function finishBuzzerWithoutSecond(room) {
+  if (room.status !== "buzzer-ready" || !["waiting", "closed", "ready"].includes(room.buzzer.status)) {
+    return "The buzzer cannot be finished while a chance is active.";
+  }
+  const noFirstBuzzer = room.buzzer.queue.length === 0 && room.buzzer.status === "closed";
+  const noSecondParticipant = room.buzzer.chanceIndex === 0 && room.buzzer.queue.length === 1 &&
+    (room.buzzer.status === "closed" || room.buzzer.queue.length >= room.players.size);
+  if (!noFirstBuzzer && !noSecondParticipant) {
+    return "Open the buzzer again or grant the next eligible chance before finishing.";
+  }
+  room.buzzer.results.push({
+    theme: room.selectedTheme.name,
+    question: room.buzzer.question,
+    nickname: "",
+    answer: "",
+    chance: noFirstBuzzer ? 1 : 2,
+    outcome: "unanswered",
+    points: 0
+  });
+  room.buzzer.status = "complete";
+  room.status = "buzzer-results";
+  emitRoundState(room);
+  return null;
 }
 
-function continueAfterPractical(room) {
-  if (!nextScheduledRound(room, "practical")) return "There is no scheduled competition round after Practical Quiz.";
-  if (!canContinuePractical(room)) return "Resolve eligible buzzer chances before continuing.";
+function continuePracticalTheme(room) {
+  if (room.status !== "buzzer-results") return "Complete the current theme's buzzer question before continuing.";
+  room.practicalIndex += 1;
+  room.practicalTurns += 1;
+  room.selectedTheme = null;
+  room.activePlayerId = room.practicalOrder[room.practicalIndex]?.id || null;
+  room.buzzer = {
+    ...room.buzzer,
+    question: "",
+    status: "waiting",
+    queue: [],
+    chanceIndex: -1,
+    deadline: 0,
+    pendingResponse: "",
+    pendingOutcome: ""
+  };
+  if (room.activePlayerId) {
+    room.status = "practical-theme";
+    emitRoom(room, "game:practical-next", {
+      activePlayerId: room.activePlayerId,
+      activePlayer: room.players.get(room.activePlayerId)?.nickname || null
+    });
+    emitRoundState(room);
+    return null;
+  }
   advanceAfterRound(room, "practical");
   return null;
 }
 
-function startPaperMarks(room) {
-  if (nextScheduledRound(room, "practical")) return "Complete the scheduled rounds before entering Paper Marks.";
-  if (!canContinuePractical(room)) return "Resolve eligible buzzer chances before entering Paper Marks.";
-  room.status = "paper-marks";
-  room.round = "paper-marks";
+function addSingleMark(room, playerId, marks) {
+  if (room.status === "finished") return "This game is finished.";
+  if (typeof playerId !== "string" || !room.players.has(playerId)) return "Select a participant from this game.";
+  if (!Number.isSafeInteger(marks) || marks < 0 || marks > 1000000) return "Marks must be a whole number from 0 to 1,000,000.";
+  const player = room.players.get(playerId);
+  player.score += marks;
+  room.paperMarks.push({ playerId, nickname: player.nickname, marks, addedAt: new Date().toISOString(), phase: room.status });
   emitRoundState(room);
   return null;
 }
@@ -1629,21 +2021,15 @@ function submitPaperMarks(room, entries) {
 
 function emitFinalResults(room) {
   const hostPayload = {
-    leaderboard: publicLeaderboard(room),
+    leaderboard: leaderboard(room).map((player) => ({
+      ...player,
+      paperMarks: room.players.get(player.id)?.paperMarks || 0
+    })),
     showPlayerReport: true,
-    showScores: room.permissions.showTeamTotalToPlayers
+    showScores: true
   };
   if (room.hostSocketId) io.to(room.hostSocketId).emit("game:podium", hostPayload);
-  const players = io.to(room.pin).except(room.hostSocketId);
-  if (room.permissions.showUserFinalReport) {
-    players.emit("game:podium", {
-      leaderboard: leaderboard(room, room.permissions.showTeamTotalToPlayers),
-      showPlayerReport: true,
-      showScores: room.permissions.showTeamTotalToPlayers
-    });
-  } else {
-    players.emit("game:report-locked");
-  }
+  io.to(room.pin).except(room.hostSocketId).emit("game:podium", hostPayload);
 }
 
 function finishCompetition(room) {
@@ -1718,6 +2104,16 @@ io.on("connection", (socket) => {
     ack({ game: gameSummary(room), joinOrigin: getLanOrigin() });
     socket.emit("game:lobby", hostRoomState(room));
     socket.emit("game:round-state", publicRoundState(room));
+    socket.emit("game:practical-admin-state", {
+      selectedTheme: room.selectedTheme ? {
+        name: room.selectedTheme.name,
+        question: room.selectedTheme.question,
+        answer: room.selectedTheme.answer,
+        buzzerQuestion: room.selectedTheme.buzzerQuestion,
+        buzzerAnswer: room.selectedTheme.buzzerAnswer
+      } : null,
+      practicalTimeLimit: room.practicalTimeLimit
+    });
     if (room.status === "question" || room.status === "paused") emitHostQuestion(room);
     if (room.status === "paused") socket.emit("game:paused", { remainingMs: room.remainingMs });
     if (room.status === "review") socket.emit("game:review", reviewPayload(room));
@@ -1727,12 +2123,44 @@ io.on("connection", (socket) => {
     });
     if (room.status === "practical-video" && room.selectedTheme) socket.emit("game:practical-video", {
       activePlayerId: room.activePlayerId, activePlayer: room.players.get(room.activePlayerId)?.nickname || "",
-      theme: { name: room.selectedTheme.name, videoUrl: room.selectedTheme.videoUrl }, duration: 30
+      theme: { name: room.selectedTheme.name, videoUrl: room.selectedTheme.videoUrl }
     });
     if (room.status === "finished") socket.emit("game:podium", {
-      leaderboard: publicLeaderboard(room),
-      showScores: room.permissions.showTeamTotalToPlayers,
+      leaderboard: leaderboard(room).map((player) => ({
+        ...player,
+        paperMarks: room.players.get(player.id)?.paperMarks || 0
+      })),
+      showScores: true,
       showPlayerReport: true
+    });
+  });
+
+  socket.on("display:watch", (payload = {}, ack = () => {}) => {
+    payload = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
+    ack = typeof ack === "function" ? ack : () => {};
+    const user = getSocketUser(socket);
+    if (user?.role !== "admin" && user?.role !== "shower") return ack({ error: "Display screen access is required." });
+    const room = rooms.get(typeof payload.pin === "string" ? payload.pin.trim() : "");
+    if (!room) return ack({ error: "Game PIN not found. Open the display link provided by the administrator." });
+    socket.data.displayPin = room.pin;
+    socket.join(room.pin);
+    socket.join(`display:${room.pin}`);
+    ack({
+      game: { pin: room.pin, title: room.title, players: [...room.players.values()].map(({ userId, nickname }) => ({ id: userId, nickname })) },
+      joinOrigin: getLanOrigin()
+    });
+    socket.emit("game:lobby", hostRoomState(room));
+    socket.emit("game:round-state", publicRoundState(room));
+    if (room.status === "question" || room.status === "paused") emitHostQuestion(room);
+    if (room.status === "paused") socket.emit("game:paused", { remainingMs: room.remainingMs });
+    if (room.status === "review") socket.emit("game:review", reviewPayload(room));
+    if (room.status === "rapid-common") socket.emit("game:rapid-common", {
+      question: room.rapidQuestion.question, image: room.rapidQuestion.image || "",
+      options: room.rapidQuestion.options, timeLimit: room.rapidQuestion.timeLimit, deadline: room.rapidDeadline
+    });
+    if (room.status === "finished") socket.emit("game:podium", {
+      leaderboard: leaderboard(room).map((player) => ({ ...player, paperMarks: room.players.get(player.id)?.paperMarks || 0 })),
+      showPlayerReport: true, showScores: true
     });
   });
 
@@ -1790,6 +2218,16 @@ io.on("connection", (socket) => {
         question: question.question, image: question.image || "", options: question.options,
         timeLimit: question.timeLimit, deadline: room.rapidDeadline
       });
+    } else if (room.status === "practical-question" && player.userId === room.activePlayerId) {
+      socket.emit("game:practical-question", {
+        deadline: room.practicalDeadline
+      });
+    } else if (room.status === "buzzer-ready" && room.buzzer.status === "chance" &&
+        room.buzzer.queue[room.buzzer.chanceIndex] === player.userId) {
+      socket.emit("game:buzzer-chance", {
+        deadline: room.buzzer.deadline,
+        chance: room.buzzer.chanceIndex + 1
+      });
     } else if (room.status === "review") {
       socket.emit("game:feedback", {
         answered: player.answerIndex !== null,
@@ -1802,15 +2240,14 @@ io.on("connection", (socket) => {
         } : {})
       });
     } else if (room.status === "finished") {
-      if (room.permissions.showUserFinalReport) {
-        socket.emit("game:podium", {
-          leaderboard: leaderboard(room, room.permissions.showTeamTotalToPlayers),
-          showScores: room.permissions.showTeamTotalToPlayers,
-          showPlayerReport: true
-        });
-      } else {
-        socket.emit("game:report-locked");
-      }
+      socket.emit("game:podium", {
+        leaderboard: leaderboard(room).map((entry) => ({
+          ...entry,
+          paperMarks: room.players.get(entry.id)?.paperMarks || 0
+        })),
+        showScores: true,
+        showPlayerReport: true
+      });
     }
     socket.emit("game:round-state", publicRoundState(room));
     saveGame(room);
@@ -1881,20 +2318,6 @@ io.on("connection", (socket) => {
     ack({ accepted: true });
   });
 
-  socket.on("player:practical-video-ended", (payload = {}, ack = () => {}) => {
-    ack = typeof ack === "function" ? ack : () => {};
-    const room = rooms.get(typeof payload.pin === "string" ? payload.pin : "");
-    const player = room && findRoomPlayer(room, socket.id);
-    if (room && player && player.userId === room.activePlayerId && room.status === "practical-question") {
-      return ack({ accepted: true });
-    }
-    if (!room || !player || player.userId !== room.activePlayerId || room.status !== "practical-video") {
-      return ack({ error: "There is no practical video to finish." });
-    }
-    startPracticalQuestion(room);
-    ack({ accepted: true });
-  });
-
   socket.on("player:practical-answer", (payload = {}, ack = () => {}) => {
     ack = typeof ack === "function" ? ack : () => {};
     const room = rooms.get(typeof payload.pin === "string" ? payload.pin : "");
@@ -1902,14 +2325,22 @@ io.on("connection", (socket) => {
     if (!room || !player || player.userId !== room.activePlayerId || room.status !== "practical-question") {
       return ack({ error: "There is no practical question for you to answer." });
     }
-    if (typeof payload.answer !== "string" || payload.answer.trim().length > 500) return ack({ error: "Enter an answer of at most 500 characters." });
-    if (Date.now() >= room.practicalDeadline) {
-      finishPracticalQuestion(room, false);
-      return ack({ error: "Time is up." });
+    if (typeof payload.answer !== "string" || !payload.answer.trim() || payload.answer.trim().length > 500) {
+      return ack({ error: "Enter an answer of 1–500 characters." });
     }
-    const correct = payload.answer.trim().toLocaleLowerCase() === room.selectedTheme.answer.trim().toLocaleLowerCase();
-    finishPracticalQuestion(room, correct);
-    ack({ accepted: true, correct });
+    if (Date.now() >= room.practicalDeadline) {
+      clearRoomTimer(room);
+      room.practicalDeadline = 0;
+      room.practicalPendingAnswer = "";
+      room.status = "practical-question-review";
+    } else {
+      clearRoomTimer(room);
+      room.practicalDeadline = 0;
+      room.practicalPendingAnswer = payload.answer.trim();
+      room.status = "practical-question-review";
+    }
+    emitRoundState(room);
+    ack({ accepted: true });
   });
 
   socket.on("player:buzzer", (payload = {}, ack = () => {}) => {
@@ -1922,6 +2353,7 @@ io.on("connection", (socket) => {
     }
     if (room.buzzer.queue.includes(player.userId)) return ack({ error: "Your buzzer press is already recorded." });
     if (room.buzzer.queue.length >= 2) return ack({ error: "The first two buzzer places are already taken." });
+    if (!room.players.has(player.userId)) return ack({ error: "The buzzer is not open." });
     room.buzzer.queue.push(player.userId);
     const position = room.buzzer.queue.length;
     emitRoom(room, "game:buzzer-pressed", { nickname: player.nickname, position });
@@ -1939,8 +2371,19 @@ io.on("connection", (socket) => {
     }
     if (typeof payload.answer !== "string" || !payload.answer.trim() || payload.answer.length > 500) return ack({ error: "Enter an answer of 1–500 characters." });
     if (room.buzzer.pendingResponse) return ack({ error: "Your buzzer answer has already been sent." });
+    if (Date.now() >= room.buzzer.deadline) {
+      enterBuzzerReview(room, "unanswered");
+      return ack({ accepted: true });
+    }
+    clearRoomTimer(room);
     room.buzzer.pendingResponse = payload.answer.trim();
-    if (room.hostSocketId) io.to(room.hostSocketId).emit("game:buzzer-answer", { nickname: player.nickname, answer: room.buzzer.pendingResponse });
+    room.buzzer.pendingOutcome = "";
+    room.buzzer.status = "review";
+    room.status = "buzzer-review";
+    if (room.hostSocketId) io.to(room.hostSocketId).emit("game:buzzer-answer", {
+      nickname: player.nickname,
+      answer: room.buzzer.pendingResponse
+    });
     emitRoundState(room);
     ack({ accepted: true });
   });
@@ -1953,8 +2396,7 @@ io.on("connection", (socket) => {
         room.buzzer.queue[room.buzzer.chanceIndex] !== player.userId) {
       return ack({ error: "You do not currently have a buzzer chance." });
     }
-    const error = resolveBuzzerChance(room, false, 0, "pass");
-    if (error) return ack({ error });
+    enterBuzzerReview(room, "unanswered");
     ack({ accepted: true });
   });
 
@@ -2068,10 +2510,34 @@ async function startServer() {
   } else {
     console.warn("ADMIN_EMAIL and ADMIN_PASSWORD are not set; no administrator account is provisioned.");
   }
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Science Day Quiz is listening on port ${PORT}`);
-    for (const address of getLanAddresses()) console.log(`LAN access: http://${address}:${PORT}`);
-  });
+  const maxPort = PORT_WAS_CONFIGURED ? PORT : Math.min(PORT + 10, 65535);
+  for (let port = PORT; port <= maxPort; port += 1) {
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (error) => {
+          server.removeListener("listening", onListening);
+          reject(error);
+        };
+        const onListening = () => {
+          server.removeListener("error", onError);
+          resolve();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(port, "0.0.0.0");
+      });
+      const actualPort = server.address().port;
+      console.log(`Science Day Quiz is listening on port ${actualPort}`);
+      if (port !== PORT) console.warn(`Port ${PORT} was busy; using port ${actualPort}.`);
+      for (const address of getLanAddresses()) console.log(`LAN access: http://${address}:${actualPort}`);
+      return;
+    } catch (error) {
+      if (error.code !== "EADDRINUSE") throw error;
+      if (PORT_WAS_CONFIGURED || port === maxPort) {
+        throw new Error(`Port ${port} is already in use. Stop the process using it or set PORT to another available port.`, { cause: error });
+      }
+    }
+  }
 }
 
 startServer().catch((error) => {

@@ -152,7 +152,10 @@
       const profile = document.getElementById("profile-link");
       profile.textContent = user.name.trim().split(/\s+/)[0];
       const savedPin = quizAuthStorage.getPin();
-      if (user.role !== "admin" && savedPin) {
+      if (user.role === "shower") {
+        profile.href = savedPin ? `/display.html?pin=${encodeURIComponent(savedPin)}` : "/display.html";
+        document.getElementById("signed-in-message").textContent = "You're signed in as a Shower. Open the display link provided by the administrator.";
+      } else if (user.role !== "admin" && savedPin) {
         profile.href = `/play.html?pin=${encodeURIComponent(savedPin)}`;
         document.getElementById("signed-in-message").textContent = `You're signed in. Tap your name to join game PIN ${savedPin}.`;
       } else if (user.role === "admin") {
@@ -278,6 +281,10 @@
         if (user.role === "admin") {
           message.textContent = "Administrators host games from the host panel.";
           message.classList.remove("hidden");
+          return;
+        }
+        if (user.role === "shower") {
+          window.location.assign(`/display.html?pin=${encodeURIComponent(pin)}`);
           return;
         }
         window.location.assign(`/play.html?pin=${encodeURIComponent(pin)}`);

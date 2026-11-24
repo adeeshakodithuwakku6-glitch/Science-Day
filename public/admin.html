@@ -38,13 +38,16 @@
           <button id="refresh-games" class="rounded-lg bg-slate-200 px-4 py-2 font-bold hover:bg-slate-300">Refresh</button>
         </div>
         <div id="game-list" class="mt-4 space-y-4"></div>
-        <h3 class="mt-8 text-xl font-black">Completed competition reports</h3>
+        <div class="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <h3 class="text-xl font-black">Completed competition reports</h3>
+          <button id="refresh-reports" type="button" class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-bold hover:bg-slate-300">Refresh reports</button>
+        </div>
         <div id="report-list" class="mt-3 space-y-3"></div>
       </section>
 
       <section class="admin-toolbar mb-6 rounded-2xl p-5">
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <div><h2 class="text-2xl font-black">User accounts</h2><p class="mt-1 text-slate-600">Promote or demote users. At least one administrator must remain.</p></div>
+          <div><h2 class="text-2xl font-black">User accounts</h2><p class="mt-1 text-slate-600">Assign player, Shower display, or administrator access. At least one administrator must remain.</p></div>
           <button id="refresh-users" class="rounded-lg bg-slate-200 px-4 py-2 font-bold hover:bg-slate-300">Refresh</button>
         </div>
         <div class="mt-4 overflow-x-auto">
@@ -88,11 +91,8 @@
           </section>
           <section class="rounded-xl bg-white p-4 ring-1 ring-slate-200">
             <h3 class="text-xl font-black">Practical Quiz themes</h3>
-            <p class="text-sm text-slate-600">Edit all ten themes. The active player chooses a theme, watches its optional video, then answers its private question.</p>
+            <p class="text-sm text-slate-600">Each theme has a private question for its chooser and a shared buzzer question. The top ten players in Rapid Fire order each choose one unused theme.</p>
             <div id="practical-theme-list" class="mt-4 grid gap-4 lg:grid-cols-2"></div>
-            <label class="mt-5 block text-sm font-bold">Buzzer questions, one per line
-              <textarea id="practical-buzzer-questions" rows="4" maxlength="51000" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal"></textarea>
-            </label>
           </section>
         </div>
       </section>
@@ -153,8 +153,84 @@
         window.location.replace("/");
         throw new Error("Please sign in with an administrator account.");
       }
-      if (!response.ok) throw new Error(data.error || "Request failed.");
+      if (!response.ok) {
+        const method = String(options.method || "GET").toUpperCase();
+        const detail = data.error || (response.status === 404 && method === "DELETE" && url.startsWith("/api/admin/reports/")
+          ? "This running server does not have report deletion enabled yet. Restart the latest quiz server and use the port it prints."
+          : `Request failed (${response.status}) for ${method} ${url}.`);
+        throw new Error(detail);
+      }
       return data;
+    }
+    async function uploadMedia(file) {
+      if (file.size > 1024 * 1024 * 1024) throw new Error("Choose a file smaller than 1 GB.");
+      const mimeByExtension = {
+        jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+        mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogg: "video/ogg", ogv: "video/ogg",
+        mov: "video/quicktime", qt: "video/quicktime", avi: "video/x-msvideo", mkv: "video/x-matroska",
+        mpg: "video/mpeg", mpeg: "video/mpeg", "3gp": "video/3gpp", ts: "video/mp2t"
+      };
+      const extension = file.name.split(".").pop().toLowerCase();
+      const contentType = mimeByExtension[extension] || file.type;
+      if (!contentType) throw new Error("This file type is not supported. Choose an image or video file.");
+      let response;
+      try {
+        response = await fetch("/api/admin/media", {
+          method: "POST",
+          headers: { "Content-Type": contentType, "X-File-Extension": extension },
+          body: file
+        });
+      } catch (error) {
+        throw new Error(`Could not reach the upload server: ${error.message}`);
+      }
+      const responseText = await response.text();
+      let result = {};
+      try { result = responseText ? JSON.parse(responseText) : {}; } catch {
+        result.error = responseText.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+      }
+      if (response.status === 401 || response.status === 403) {
+        window.location.replace("/");
+        throw new Error("Please sign in with an administrator account.");
+      }
+      if (!response.ok) {
+        const detail = result.error || `HTTP ${response.status}`;
+        throw new Error(response.status === 404
+          ? "The running server does not have the upload route yet. Restart the quiz server and try again."
+          : `Upload failed (${response.status}): ${detail}`);
+      }
+      return result;
+    }
+    function addMediaPicker(target, accept, mediaLabel) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "mt-2 rounded-lg border border-dashed border-slate-300 p-3";
+      const picker = document.createElement("input");
+      picker.type = "file";
+      picker.accept = accept;
+      picker.className = "block max-w-full text-xs font-normal";
+      picker.setAttribute("aria-label", `Choose ${mediaLabel} from this computer`);
+      const status = document.createElement("span");
+      status.className = "mt-1 block text-xs font-normal text-slate-500";
+      status.textContent = `Choose ${mediaLabel} from this computer (up to 1 GB).`;
+      picker.addEventListener("change", async () => {
+        const file = picker.files?.[0];
+        if (!file) return;
+        picker.disabled = true;
+        status.textContent = `Uploading ${file.name}…`;
+        try {
+          const uploaded = await uploadMedia(file);
+          target.value = uploaded.path;
+          status.textContent = `Uploaded to ${uploaded.path}. Save the question bank to use it in new games.`;
+          showNotice(`${mediaLabel} uploaded to ${uploaded.path}. Save changes to use it in new games.`);
+        } catch (error) {
+          status.textContent = error.message;
+          showNotice(error.message, true);
+        } finally {
+          picker.disabled = false;
+          picker.value = "";
+        }
+      });
+      wrapper.append(picker, status);
+      return wrapper;
     }
     function createQuestionId() {
       if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -194,7 +270,9 @@
         prompt.placeholder = "Enter the question";
         card.querySelector('[data-field="timeLimit"]').value = String(question.timeLimit);
         card.querySelector('[data-field="points"]').value = String(question.points || 20);
-        card.querySelector('[data-field="image"]').value = question.image || "";
+        const imageInput = card.querySelector('[data-field="image"]');
+        imageInput.value = question.image || "";
+        imageInput.parentElement.after(addMediaPicker(imageInput, "image/jpeg,image/png,image/gif,image/webp", "an image"));
         const options = card.querySelector(".options");
         question.options.forEach((option, optionIndex) => {
           const label = document.createElement("label");
@@ -303,7 +381,9 @@
         time.className = "ml-1 w-24 rounded border border-slate-300 px-2 py-1";
         timeLabel.append(time, document.createTextNode(" seconds"));
         settings.append(correctLabel, timeLabel);
-        card.append(settings, bankField("Optional image URL or public file path", question.image, "image", 2048, false));
+        const imageLabel = bankField("Optional image URL or public file path (e.g. /uploads/images/diagram.png)", question.image, "image", 2048, false);
+        const imagePicker = addMediaPicker(imageLabel.querySelector('[data-bank-field="image"]'), "image/jpeg,image/png,image/gif,image/webp", "an image");
+        card.append(settings, imageLabel, imagePicker);
         commonList.append(card);
       });
 
@@ -315,17 +395,20 @@
         const title = document.createElement("h4");
         title.className = "mb-3 font-black";
         title.textContent = `Theme ${index + 1}`;
+        const videoLabel = bankField("Video URL or uploaded file path", theme.videoUrl, "videoUrl", 2048, false);
+        const videoPicker = addMediaPicker(videoLabel.querySelector('[data-bank-field="videoUrl"]'), "video/*,.m4v", "a video");
         card.append(title,
           bankField("Theme name", theme.name, "name", 60),
-          bankField("Video URL or public file path (optional)", theme.videoUrl, "videoUrl", 2048, false),
-          bankField("Question", theme.question, "question"),
-          bankField("Accepted answer", theme.answer, "answer", 200));
+          videoLabel,
+          videoPicker,
+          bankField("Private question", theme.question, "question"),
+          bankField("Private answer (Admin reference)", theme.answer, "answer", 200),
+          bankField("Shared buzzer question", theme.buzzerQuestion, "buzzerQuestion"),
+          bankField("Shared buzzer answer (Admin reference)", theme.buzzerAnswer, "buzzerAnswer", 200));
         themeList.append(card);
       });
       document.getElementById("rapid-announcer-questions").value =
         roundQuestionBanks.rapidFire.announcerQuestions.join("\n");
-      document.getElementById("practical-buzzer-questions").value =
-        roundQuestionBanks.practical.buzzerQuestions.join("\n");
     }
 
     function readRoundBankForm() {
@@ -347,10 +430,11 @@
         name: card.querySelector('[data-bank-field="name"]').value.trim(),
         videoUrl: card.querySelector('[data-bank-field="videoUrl"]').value.trim(),
         question: card.querySelector('[data-bank-field="question"]').value.trim(),
-        answer: card.querySelector('[data-bank-field="answer"]').value.trim()
+        answer: card.querySelector('[data-bank-field="answer"]').value.trim(),
+        buzzerQuestion: card.querySelector('[data-bank-field="buzzerQuestion"]').value.trim(),
+        buzzerAnswer: card.querySelector('[data-bank-field="buzzerAnswer"]').value.trim()
       }));
-      roundQuestionBanks.practical.buzzerQuestions =
-        document.getElementById("practical-buzzer-questions").value.split(/\r?\n/).map((text) => text.trim()).filter(Boolean);
+      delete roundQuestionBanks.practical.buzzerQuestions;
       return roundQuestionBanks;
     }
 
@@ -368,38 +452,113 @@
         }
         const actionCell = document.createElement("td");
         actionCell.className = "p-3";
-        if (user.id === currentUserId) {
-          actionCell.textContent = "You";
-        } else {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "rounded-lg bg-purple-100 px-3 py-2 font-bold text-purple-900 hover:bg-purple-200";
-          button.textContent = user.role === "admin" ? "Make player" : "Make admin";
-          button.addEventListener("click", async () => {
-            try {
-              await api(`/api/admin/users/${encodeURIComponent(user.id)}/role`, {
-                method: "PATCH",
-                body: JSON.stringify({ role: user.role === "admin" ? "user" : "admin" })
-              });
-              await loadUsers();
-              showNotice(`${user.name} is now ${user.role === "admin" ? "a player" : "an administrator"}.`);
-            } catch (error) {
-              showNotice(error.message, true);
-            }
-          });
-          actionCell.append(button);
+        const select = document.createElement("select");
+        select.className = "rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold";
+        for (const [value, label] of [["user", "User · Player"], ["shower", "Shower · Display only"], ["admin", "Admin"]]) {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = label;
+          option.selected = user.role === value;
+          select.append(option);
         }
+        if (user.id === currentUserId) select.disabled = true;
+        select.addEventListener("change", async () => {
+          try {
+            await api(`/api/admin/users/${encodeURIComponent(user.id)}/role`, {
+              method: "PATCH",
+              body: JSON.stringify({ role: select.value })
+            });
+            showNotice(`${user.name}'s role is now ${select.options[select.selectedIndex].textContent}.`);
+            await loadUsers();
+          } catch (error) {
+            select.value = user.role;
+            showNotice(error.message, true);
+          }
+        });
+        actionCell.append(select);
         row.append(actionCell);
         body.append(row);
       });
     }
 
     let currentUserId = "";
+    const pendingPaperMarks = {};
     async function loadUsers() {
       renderUsers(await api("/api/admin/users"));
     }
 
-    function renderGames(games) {
+    function renderPendingPaperMarks(game) {
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4";
+    fieldset.innerHTML = "<legend class='px-1 text-sm font-black text-amber-900'>Paper Marks (hidden from players)</legend>";
+    const note = document.createElement("p");
+    note.className = "text-xs font-semibold text-amber-900";
+    note.textContent = "Enter each participant's value here. They are saved on this screen only until you press Add, then added to the totals once for the whole game.";
+    fieldset.append(note);
+    const grid = document.createElement("div");
+    grid.className = "mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3";
+    const ranks = new Map((game.leaderboard || []).map((player) => [player.id, player.rank]));
+    const inputs = [...game.players].sort((left, right) =>
+      (ranks.get(left.id) || Number.MAX_SAFE_INTEGER) - (ranks.get(right.id) || Number.MAX_SAFE_INTEGER)
+    ).map((player) => {
+      const label = document.createElement("label");
+      label.className = "text-xs font-bold text-slate-700";
+      label.textContent = player.nickname;
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "0";
+      input.max = "1000000";
+      input.step = "1";
+      input.value = String(pendingPaperMarks[game.pin]?.[player.id] ?? 0);
+      input.className = "mt-1 block w-full rounded-lg border border-amber-300 bg-white px-2 py-2 text-sm";
+      input.addEventListener("input", () => {
+        pendingPaperMarks[game.pin] = pendingPaperMarks[game.pin] || {};
+        pendingPaperMarks[game.pin][player.id] = input.value;
+      });
+      label.append(input);
+      grid.append(label);
+      return { player, input };
+    });
+    fieldset.append(grid);
+    const submit = document.createElement("button");
+    submit.type = "button";
+    submit.className = "mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50";
+    submit.textContent = game.status === "paper-marks" ? "Add marks to totals" : "Add these Paper Marks now";
+    submit.addEventListener("click", async () => {
+      if (inputs.some(({ input }) => !input.reportValidity())) return;
+      submit.disabled = true;
+      try {
+        if (game.status === "paper-marks") {
+          await api(`/api/admin/games/${encodeURIComponent(game.pin)}/paper-submit`, {
+            method: "POST",
+            body: JSON.stringify({
+              marks: inputs.map(({ player, input }) => ({ playerId: player.id, marks: Number(input.value) }))
+            })
+          });
+        } else {
+          for (const { player, input } of inputs) {
+            const marks = Number(input.value);
+            if (!marks) continue;
+            await api(`/api/admin/games/${encodeURIComponent(game.pin)}/paper-add`, {
+              method: "POST",
+              body: JSON.stringify({ playerId: player.id, marks })
+            });
+          }
+        }
+        pendingPaperMarks[game.pin] = {};
+        await loadGames();
+        showNotice("Paper Marks were added to the totals.");
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    fieldset.append(submit);
+    return fieldset;
+  }
+
+  function renderGames(games) {
       const container = document.getElementById("game-list");
       container.replaceChildren();
       games.forEach((game) => {
@@ -490,8 +649,7 @@
           questionText.textContent = JSON.stringify({
             rapidFireCommon: game.rapidQuestion,
             rapidFireAnnouncer: game.rapidAnnouncerQuestions,
-            practicalThemes: game.practicalThemes,
-            practicalBuzzer: game.buzzerQuestions
+            practicalThemes: game.practicalThemes
           }, null, 2);
           questionsDetails.append(questionsSummary, questionText);
           card.append(questionsDetails);
@@ -511,7 +669,7 @@
           });
           card.append(ranks);
         }
-        if (game.rapidOrder?.length) {
+        if (game.rapidOrder?.length && game.status !== "rapid-turns") {
           const order = document.createElement("p");
           order.className = "mt-3 text-sm text-slate-600";
           order.textContent = `Rapid Fire calling order: ${game.rapidOrder.map((player) => `${player.rank}. ${player.nickname}`).join(" · ")}`;
@@ -525,12 +683,11 @@
           card.append(turn);
         }
         const permissions = document.createElement("fieldset");
-        permissions.className = "mt-4 grid gap-2 rounded-xl bg-purple-50 p-4 sm:grid-cols-3";
-        permissions.innerHTML = "<legend class='px-1 text-sm font-black'>Live visibility permissions</legend>";
+        permissions.className = "mt-4 grid gap-2 rounded-xl bg-purple-50 p-4 sm:grid-cols-2";
+        permissions.innerHTML = "<legend class='px-1 text-sm font-black'>Live visibility permissions</legend><p class='text-sm font-semibold text-slate-700 sm:col-span-2'>Final rankings and marks are shown to every participant after you publish them.</p>";
         [
           ["showQuizLeaderboardAndRanks", "Show quiz leaderboard and ranks"],
-          ["showTeamTotalToPlayers", "Show cumulative totals to players"],
-          ["showUserFinalReport", "Show player final report"]
+          ["showTeamTotalToPlayers", "Show cumulative totals to players"]
         ].forEach(([key, labelText]) => {
           const label = document.createElement("label");
           label.className = "flex items-start gap-2 text-sm font-semibold";
@@ -555,6 +712,7 @@
           permissions.append(label);
         });
         card.append(permissions);
+        if (game.live && game.status !== "finished") card.append(renderPendingPaperMarks(game));
 
         const controls = document.createElement("div");
         controls.className = "mt-4 flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 p-3";
@@ -571,22 +729,6 @@
           label.append(input);
           controls.append(label);
           return input;
-        }
-        function addSelect(labelText, options) {
-          const label = document.createElement("label");
-          label.className = "text-xs font-bold";
-          label.append(document.createTextNode(labelText));
-          const select = document.createElement("select");
-          select.className = "mt-1 block max-w-xs rounded-lg border border-slate-300 px-2 py-2 text-sm";
-          options.forEach((value) => {
-            const option = document.createElement("option");
-            option.value = value;
-            option.textContent = value;
-            select.append(option);
-          });
-          label.append(select);
-          controls.append(label);
-          return select;
         }
         function addAction(action, labelText, body = {}, inputs = []) {
           const button = document.createElement("button");
@@ -615,112 +757,146 @@
           });
           controls.append(button);
         }
-        if (game.status === "rapid-rules") addAction("rapid-common", "Start common question");
+        if (game.status === "rapid-rules") addAction("rapid-common", "Continue to common question");
         if (game.status === "rapid-turns") {
           const duration = addInput("Turn seconds", 30);
-          addAction("rapid-turn", "Start next Rapid Fire turn", {}, [{ key: "duration", input: duration }]);
+          duration.min = "5";
+          duration.max = "600";
+          const nextIndex = game.rapidResults?.length || 0;
+          const order = document.createElement("ol");
+          order.className = "flex flex-wrap gap-2";
+          game.rapidOrder.forEach((player, index) => {
+            const item = document.createElement("li");
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40";
+            button.textContent = `${player.rank}. ${player.nickname}`;
+            button.disabled = index !== nextIndex;
+            button.addEventListener("click", async () => {
+              button.disabled = true;
+              try {
+                await api(`/api/admin/games/${encodeURIComponent(game.pin)}/rapid-turn`, {
+                  method: "POST",
+                  body: JSON.stringify({ playerId: player.id, duration: Number(duration.value) })
+                });
+                await loadGames();
+                showNotice(`${player.nickname}'s Rapid Fire turn started.`);
+              } catch (error) {
+                showNotice(error.message, true);
+                button.disabled = false;
+              }
+            });
+            item.append(button);
+            order.append(item);
+          });
+          controls.append(order);
+          if (nextIndex >= game.rapidOrder.length) {
+            const roundOrder = game.roundOrder || ["rapid-fire", "main-quiz", "practical"];
+            const nextRound = roundOrder[roundOrder.indexOf("rapid-fire") + 1];
+            addAction("rapid-next", nextRound ? `Continue to ${orderNames[nextRound]}` : "Continue to next round");
+          }
         }
         if (game.status === "rapid-turn") {
-          const count = addInput("Questions answered", 0);
-          const each = addInput("Points per question", 5);
-          const manual = addInput("Manual bonus", 0);
-          addAction("rapid-turn-finish", "Finish turn and score", {}, [
-            { key: "answeredCount", input: count }, { key: "pointsPerQuestion", input: each }, { key: "manualPoints", input: manual }
-          ]);
+          const marks = addInput("Marks", 0);
+          marks.max = "1000000";
+          addAction("rapid-turn-finish", "Insert marks", {}, [{ key: "marks", input: marks }]);
         }
-        if (game.status === "quiz-rules") addAction("quiz-start", "Start Main Quiz");
+        if (game.status === "quiz-rules") addAction("quiz-start", "Continue to Main Quiz");
         if (game.status === "practical-rules") {
-          const points = addInput("Practical points", game.practicalPoints || 20);
           const duration = addInput("Question seconds", game.practicalTimeLimit || 20);
-          addAction("practical-start", "Start practical stage", {}, [
-            { key: "points", input: points }, { key: "timeLimit", input: duration }
+          addAction("practical-start", "Continue to practical stage", {}, [
+            { key: "timeLimit", input: duration }
           ]);
         }
         if (game.status === "practical-theme") {
           const note = document.createElement("p");
-          note.className = "text-sm font-semibold text-slate-600";
-          note.textContent = `Waiting for ${game.players.find((player) => player.id === game.rapidOrder?.[game.practicalIndex]?.id)?.nickname || "the active participant"} to choose a theme.`;
+          note.className = "w-full text-sm font-semibold text-slate-600";
+          const remainingThemes = game.practicalThemes.filter((theme) =>
+            !game.usedPracticalThemes?.includes(theme.name)
+          ).map((theme) => theme.name);
+          const nextChooser = game.practicalOrder?.[game.practicalIndex]?.nickname || "the active participant";
+          note.textContent = `Waiting for ${nextChooser} to choose theme ${(game.practicalIndex || 0) + 1}. Unused themes: ${remainingThemes.join(", ")}.`;
           controls.append(note);
         }
-        if (game.status === "practical-video") addAction("practical-video-next", "End video and ask question");
-        if (game.status === "buzzer-ready" && game.buzzer.status === "waiting") {
-          const question = addSelect("Buzzer question", game.buzzerQuestions || []);
-          const duration = addInput("Buzz window (seconds)", 20);
-          addAction("buzzer-start", "Open buzzer", {}, [{ key: "question", input: question }, { key: "duration", input: duration }]);
+        if (game.status === "practical-video") addAction("practical-video-next", "Skip video and ask question");
+        if (game.status === "practical-question") {
+          const note = document.createElement("p");
+          note.className = "w-full text-sm font-semibold text-slate-600";
+          note.textContent = `${game.practicalOrder?.[game.practicalIndex]?.nickname || "The chooser"} answers aloud to the announcer. Choose the result after hearing the answer.`;
+          controls.append(note);
+        }
+        if (["practical-question", "practical-question-review"].includes(game.status)) {
+          const response = document.createElement("p");
+          response.className = "w-full rounded-lg bg-purple-50 p-3 text-sm font-bold";
+          response.textContent = [
+            `Question: ${game.selectedTheme?.question || "Not set"}`,
+            `Expected answer: ${game.selectedTheme?.answer || "Not set"}`
+          ].join(" · ");
+          controls.append(response);
+          addAction("practical-resolve", "Correct (+10)", { outcome: "correct" });
+          addAction("practical-resolve", "Wrong (−5)", { outcome: "wrong" });
+          addAction("practical-resolve", "Not Answered (0)", { outcome: "unanswered" });
         }
         if (game.status === "buzzer") addAction("buzzer-close", "Close buzzer");
-        if (game.status === "buzzer-ready" && game.buzzer.queue.length && game.buzzer.status !== "chance") {
+        if (game.status === "buzzer-ready" && game.buzzer.canReopen &&
+            ["waiting", "closed", "ready"].includes(game.buzzer.status)) {
+          const duration = addInput("Buzz window (seconds)", game.buzzer.windowSeconds || 20);
+          addAction("buzzer-start", game.buzzer.queue.length ? "Open buzzer for another participant" : "Open buzzer", {}, [
+            { key: "duration", input: duration }
+          ]);
+        }
+        if (game.status === "buzzer-ready" && ["closed", "ready"].includes(game.buzzer.status) &&
+            game.buzzer.queue.length > game.buzzer.chanceIndex + 1 && game.buzzer.chanceIndex < 1) {
           const duration = addInput("Chance seconds", 20);
-          addAction("buzzer-chance", `Grant ${game.buzzer.chanceIndex + 2}${game.buzzer.chanceIndex < 0 ? "st" : "nd"} chance`, {}, [{ key: "duration", input: duration }]);
+          const nextChance = game.buzzer.chanceIndex + 2;
+          addAction("buzzer-chance", `Grant ${nextChance}${nextChance === 1 ? "st" : "nd"} chance`, {}, [
+            { key: "duration", input: duration }
+          ]);
         }
-        if (game.status === "buzzer-ready" && game.buzzer.status === "chance") {
+        if (game.status === "buzzer-review" ||
+            (game.status === "buzzer-ready" && game.buzzer.status === "chance")) {
           const response = document.createElement("p");
-          response.className = "w-full text-sm font-bold";
-          response.textContent = game.buzzer.pendingResponse ? `Answer: ${game.buzzer.pendingResponse}` : "Waiting for spoken answer or timeout.";
+          response.className = "w-full rounded-lg bg-purple-50 p-3 text-sm font-bold";
+          response.textContent = [
+            `Question: ${game.buzzer.question}`,
+            `Verbal answer from ${game.buzzer.queue[game.buzzer.chanceIndex] || "participant"}`,
+            `Expected answer: ${game.selectedTheme?.buzzerAnswer || "Not set"}`
+          ].join(" · ");
           controls.append(response);
-          const points = addInput("Manual points", 20);
-          addAction("buzzer-resolve", "Mark correct and award points", { correct: true }, [{ key: "points", input: points }]);
-          addAction("buzzer-resolve", "Mark wrong (no points)", { correct: false, points: 0 });
+          const firstChance = game.buzzer.chanceIndex === 0;
+          addAction("buzzer-resolve", `Correct (+${firstChance ? 10 : 5})`, { outcome: "correct" });
+          addAction("buzzer-resolve", `Wrong (−${firstChance ? 5 : 3})`, { outcome: "wrong" });
+          addAction("buzzer-resolve", "Not Answered (0)", { outcome: "unanswered" });
         }
-        const canContinuePractical = game.status === "buzzer-results" ||
-          (game.status === "buzzer-ready" && game.buzzer.queue.length === 0 &&
-            ["closed", "ready"].includes(game.buzzer.status));
-        if (canContinuePractical) {
-          const practicalIndex = (game.roundOrder || ["rapid-fire", "main-quiz", "practical"]).indexOf("practical");
-          const nextRound = (game.roundOrder || ["rapid-fire", "main-quiz", "practical"])[practicalIndex + 1];
-          if (nextRound) {
-            addAction("round-next", `Continue to ${orderNames[nextRound]}`);
-          } else {
-            addAction("paper-start", "Enter Final Paper Marks");
-          }
+        if (game.status === "buzzer-ready" && game.buzzer.queue.length === 0 &&
+            game.buzzer.status === "closed") {
+          addAction("buzzer-finish", "Finish as Not Answered");
+        }
+        if (game.status === "buzzer-ready" && game.buzzer.chanceIndex === 0 &&
+            game.buzzer.queue.length === 1 &&
+            (game.buzzer.status === "closed" || !game.buzzer.canReopen)) {
+          addAction("buzzer-finish", "Finish: no second participant");
+        }
+        if (game.status === "buzzer-results") {
+          const nextParticipant = game.practicalOrder?.[game.practicalIndex + 1];
+          const roundOrder = game.roundOrder || ["rapid-fire", "main-quiz", "practical"];
+          const nextRound = roundOrder[roundOrder.indexOf("practical") + 1];
+          const label = nextParticipant
+            ? `Next: ${nextParticipant.nickname} chooses a theme`
+            : nextRound
+              ? `Continue to ${orderNames[nextRound]}`
+              : "Next: Game Over";
+          addAction("practical-next", label);
         }
         if (game.status === "paper-marks") {
-          const marksByPlayer = game.players.map((player) => {
-            const label = document.createElement("label");
-            label.className = "text-xs font-bold";
-            label.textContent = `${player.nickname} paper marks`;
-            const input = document.createElement("input");
-            input.type = "number";
-            input.min = "0";
-            input.max = "1000000";
-            input.step = "1";
-            input.required = true;
-            input.value = "0";
-            input.dataset.playerId = player.id;
-            input.className = "mt-1 block w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm";
-            label.append(input);
-            controls.append(label);
-            return input;
-          });
-          const submitMarks = document.createElement("button");
-          submitMarks.type = "button";
-          submitMarks.className = "rounded-lg bg-purple-700 px-3 py-2 text-sm font-bold text-white hover:bg-purple-800";
-          submitMarks.textContent = "Add marks to total";
-          submitMarks.addEventListener("click", async () => {
-            if (marksByPlayer.some((input) => !input.reportValidity())) return;
-            submitMarks.disabled = true;
-            try {
-              await api(`/api/admin/games/${encodeURIComponent(game.pin)}/paper-submit`, {
-                method: "POST",
-                body: JSON.stringify({
-                  marks: marksByPlayer.map((input) => ({
-                    playerId: input.dataset.playerId,
-                    marks: Number(input.value)
-                  }))
-                })
-              });
-              await loadGames();
-              showNotice("Paper Marks were added to each total.");
-            } catch (error) {
-              showNotice(error.message, true);
-            } finally {
-              submitMarks.disabled = false;
-            }
-          });
-          controls.append(submitMarks);
+          const note = document.createElement("p");
+          note.className = "text-sm font-semibold text-slate-600";
+          note.textContent = "Use the Paper Marks box above to enter and add every participant’s marks.";
+          controls.append(note);
         }
+
         if (game.status === "paper-results") {
-          addAction("finish", "Publish Final Leaderboard");
+          addAction("finish", "Show Final Ranks on Host");
         }
         card.append(controls);
         container.append(card);
@@ -731,21 +907,135 @@
     async function loadGames() {
       renderGames(await api("/api/admin/games"));
     }
+    function escapeReportHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      })[character]);
+    }
+    function reportLabel(value) {
+      return String(value).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    }
+    function reportValue(value) {
+      if (value === null || value === undefined) return "";
+      if (Array.isArray(value)) return value.map(reportValue).join(" · ");
+      if (typeof value === "object") return Object.entries(value).map(([key, item]) => `${reportLabel(key)}: ${reportValue(item)}`).join(" · ");
+      return String(value);
+    }
+    function reportTable(headers, rows) {
+      if (!rows.length) return "<p class='empty'>No entries recorded.</p>";
+      return `<table><thead><tr>${headers.map((header) => `<th>${escapeReportHtml(reportLabel(header))}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeReportHtml(reportValue(row?.[header]))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    }
+    function createReportPdf(item) {
+      const report = item.report || {};
+      const printWindow = window.open("", "_blank", "width=1000,height=800");
+      if (!printWindow) {
+        showNotice("Allow pop-ups for this site to print or save the PDF.", true);
+        return;
+      }
+      const questions = report.questions || {};
+      const questionSections = Object.entries(questions).map(([key, value]) => {
+        const title = escapeReportHtml(reportLabel(key));
+        if (Array.isArray(value) && value.length && typeof value[0] === "object") {
+          const headers = [...new Set(value.flatMap((row) => Object.keys(row || {})))];
+          return `<section><h2>${title}</h2>${reportTable(headers, value)}</section>`;
+        }
+        const lines = (Array.isArray(value) ? value : [value]).map((line, index) => `<li>${Array.isArray(value) ? `<b>${index + 1}.</b> ` : ""}${escapeReportHtml(reportValue(line))}</li>`).join("");
+        return `<section><h2>${title}</h2><ul>${lines || "<li>None</li>"}</ul></section>`;
+      }).join("");
+      const rounds = report.rounds || {};
+      const roundSections = Object.entries(rounds).map(([key, rows]) => {
+        const entries = Array.isArray(rows) ? rows : [];
+        const headers = [...new Set(entries.flatMap((row) => Object.keys(row || {})))];
+        return `<section><h2>${escapeReportHtml(reportLabel(key))}</h2>${reportTable(headers, entries)}</section>`;
+      }).join("");
+      const paperMarks = new Map((rounds.paperMarks || []).map((entry) => [entry.playerId || entry.nickname, entry.marks]));
+      const leaderboard = report.finalLeaderboard || [];
+      const rankingRows = leaderboard.map((player, index) => ({
+        rank: player.rank || index + 1,
+        participant: player.nickname,
+        total: player.score,
+        paper: paperMarks.get(player.id) ?? paperMarks.get(player.nickname) ?? 0
+      }));
+      const title = escapeReportHtml(item.title || report.title || "Science Day Quiz");
+      const completed = escapeReportHtml(item.endedAt ? new Date(item.endedAt).toLocaleString() : "Complete");
+      printWindow.document.open();
+      printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title} - Report</title><style>
+        @page{size:A4;margin:15mm}*{box-sizing:border-box}body{margin:0;color:#252037;font:10pt/1.45 Arial,sans-serif}header{padding:0 0 16px;border-bottom:3px solid #6d28d9}header .eyebrow{color:#6d28d9;font-size:8pt;font-weight:bold;letter-spacing:2px;text-transform:uppercase}h1{margin:5px 0;font-size:25pt;color:#281449}header p{margin:3px 0;color:#675f76}h2{margin:22px 0 8px;padding-bottom:5px;border-bottom:1px solid #ddd5eb;color:#4c1d95;font-size:14pt;text-transform:capitalize}section{break-inside:avoid}table{width:100%;border-collapse:collapse;font-size:8.5pt}th{background:#f1ecf8;color:#3b2856;text-align:left}th,td{border:1px solid #e2dceb;padding:6px;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even) td{background:#faf9fc}ul{padding-left:20px}li{margin:3px 0;overflow-wrap:anywhere}.empty{color:#777;font-style:italic}.notice{margin-top:20px;color:#777;font-size:8pt}@media print{a{color:inherit}}
+      </style></head><body><header><div class="eyebrow">Science Day · Final Competition Report</div><h1>${title}</h1><p>Game PIN: ${escapeReportHtml(item.pin)} &nbsp; · &nbsp; Completed: ${completed}</p></header><section><h2>Final rankings</h2>${reportTable(["rank", "participant", "total", "paper"], rankingRows)}</section>${questionSections}${roundSections}<p class="notice">Generated from the completed Science Day Quiz report.</p></body></html>`);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => printWindow.print(), 500);
+    }
+    let reportListSignature = null;
     async function loadReports() {
       const reports = await api("/api/admin/reports");
+      const signature = reports.map(({ id, endedAt }) => `${id}:${endedAt || ""}`).join("|");
+      if (signature === reportListSignature) return;
+      reportListSignature = signature;
       const container = document.getElementById("report-list");
       container.replaceChildren();
       reports.forEach((item) => {
-        const details = document.createElement("details");
-        details.className = "rounded-xl bg-white p-4 ring-1 ring-slate-200";
-        const summary = document.createElement("summary");
-        summary.className = "cursor-pointer font-bold";
-        summary.textContent = `${item.title} · PIN ${item.pin} · ${item.endedAt || "Complete"}`;
+        const card = document.createElement("article");
+        card.className = "rounded-xl bg-white p-4 ring-1 ring-slate-200";
+        const heading = document.createElement("div");
+        heading.className = "flex flex-wrap items-start justify-between gap-3";
+        const title = document.createElement("div");
+        const name = document.createElement("h4");
+        name.className = "font-black";
+        name.textContent = item.title;
+        const meta = document.createElement("p");
+        meta.className = "mt-1 text-xs font-semibold text-slate-500";
+        meta.textContent = `PIN ${item.pin} · ${item.endedAt || "Complete"}`;
+        title.append(name, meta);
+        const actions = document.createElement("div");
+        actions.className = "flex flex-wrap gap-2";
+        heading.append(title, actions);
         const content = document.createElement("pre");
         content.className = "mt-3 overflow-x-auto whitespace-pre-wrap text-xs";
         content.textContent = JSON.stringify(item.report, null, 2);
-        details.append(summary, content);
-        container.append(details);
+        const pdf = document.createElement("button");
+        pdf.type = "button";
+        pdf.className = "rounded-lg bg-purple-700 px-3 py-2 text-xs font-bold text-white hover:bg-purple-800";
+        pdf.textContent = "Download PDF";
+        pdf.addEventListener("click", () => createReportPdf(item));
+        const download = document.createElement("button");
+        download.type = "button";
+        download.className = "rounded-lg bg-slate-200 px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-300";
+        download.textContent = "Download JSON";
+        download.addEventListener("click", () => {
+          const file = new Blob([`${JSON.stringify(item.report, null, 2)}\n`], { type: "application/json" });
+          const url = URL.createObjectURL(file);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `science-day-report-${item.pin}.json`;
+          link.click();
+          URL.revokeObjectURL(url);
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "rounded-lg bg-red-100 px-3 py-2 text-xs font-bold text-red-800 hover:bg-red-200 disabled:opacity-50";
+        remove.textContent = "Delete report";
+        remove.addEventListener("click", async () => {
+          if (!window.confirm(`Delete the completed report for ${item.title} (PIN ${item.pin})? This cannot be undone.`)) return;
+          remove.disabled = true;
+          try {
+            await api(`/api/admin/reports/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+            showNotice("Completed report deleted.");
+            await loadReports();
+          } catch (error) {
+            showNotice(error.message, true);
+            remove.disabled = false;
+          }
+        });
+        const preview = document.createElement("details");
+        preview.className = "mt-3 border-t border-slate-100 pt-3";
+        const summary = document.createElement("summary");
+        summary.className = "cursor-pointer text-sm font-bold text-purple-800";
+        summary.textContent = "Preview full report data";
+        preview.append(summary, content);
+        actions.append(pdf, download, remove);
+        card.append(heading, preview);
+        container.append(card);
       });
       if (!reports.length) container.textContent = "Completed reports appear here when a competition is finished.";
     }
@@ -815,6 +1105,10 @@
     });
     document.getElementById("refresh-games").addEventListener("click", () => loadGames().catch((error) => showNotice(error.message, true)));
     document.getElementById("refresh-users").addEventListener("click", () => loadUsers().catch((error) => showNotice(error.message, true)));
+    document.getElementById("refresh-reports").addEventListener("click", () => {
+      reportListSignature = null;
+      loadReports().catch((error) => showNotice(error.message, true));
+    });
     setInterval(() => {
       if (document.activeElement?.matches("input, select, textarea")) return;
       Promise.all([loadGames(), loadReports()]).catch((error) => showNotice(error.message, true));

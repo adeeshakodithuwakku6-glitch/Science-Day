@@ -2,36 +2,71 @@
   {
     "id": "science-1",
     "question": "Which planet is known as the Red Planet?",
-    "options": ["Venus", "Mars", "Jupiter", "Mercury"],
+    "options": [
+      "Venus",
+      "Mars",
+      "Jupiter",
+      "Mercury"
+    ],
     "correctIndex": 1,
-    "timeLimit": 20
+    "timeLimit": 20,
+    "points": 20,
+    "image": "https://share.google/IYKTf15SQErBKBkFC"
   },
   {
     "id": "science-2",
     "question": "What gas do plants absorb from the atmosphere during photosynthesis?",
-    "options": ["Oxygen", "Nitrogen", "Carbon dioxide", "Hydrogen"],
+    "options": [
+      "Oxygen",
+      "Nitrogen",
+      "Carbon dioxide",
+      "Hydrogen"
+    ],
     "correctIndex": 2,
-    "timeLimit": 25
+    "timeLimit": 25,
+    "points": 20,
+    "image": ""
   },
   {
     "id": "science-3",
     "question": "What is the chemical symbol for water?",
-    "options": ["CO2", "O2", "NaCl", "H2O"],
+    "options": [
+      "CO2",
+      "O2",
+      "NaCl",
+      "H2O"
+    ],
     "correctIndex": 3,
-    "timeLimit": 20
+    "timeLimit": 20,
+    "points": 20,
+    "image": ""
   },
   {
     "id": "science-4",
     "question": "Which part of a plant takes in most of its water?",
-    "options": ["Flowers", "Roots", "Leaves", "Stem"],
+    "options": [
+      "Flowers",
+      "Roots",
+      "Leaves",
+      "Stem"
+    ],
     "correctIndex": 1,
-    "timeLimit": 20
+    "timeLimit": 20,
+    "points": 20,
+    "image": ""
   },
   {
     "id": "science-5",
     "question": "How many bones are there in the typical adult human body?",
-    "options": ["106", "206", "306", "406"],
+    "options": [
+      "106",
+      "206",
+      "306",
+      "406"
+    ],
     "correctIndex": 1,
-    "timeLimit": 25
+    "timeLimit": 25,
+    "points": 20,
+    "image": ""
   }
 ]

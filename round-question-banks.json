@@ -4,7 +4,12 @@
       {
         "id": "rapid-common-1",
         "question": "Which planet is known as the Red Planet?",
-        "options": ["Venus", "Mars", "Jupiter", "Mercury"],
+        "options": [
+          "Venus",
+          "Mars",
+          "Jupiter",
+          "Mercury"
+        ],
         "correctIndex": 1,
         "timeLimit": 20,
         "points": 20,
@@ -19,19 +24,86 @@
   },
   "practical": {
     "themes": [
-      { "name": "Space", "videoUrl": "", "question": "Which planet is known as the Red Planet?", "answer": "Mars" },
-      { "name": "Chemistry", "videoUrl": "", "question": "What is the chemical symbol for water?", "answer": "H2O" },
-      { "name": "Plants", "videoUrl": "", "question": "Which gas do plants absorb during photosynthesis?", "answer": "Carbon dioxide" },
-      { "name": "Human Body", "videoUrl": "", "question": "Which organ pumps blood around the body?", "answer": "Heart" },
-      { "name": "Energy", "videoUrl": "", "question": "What is the SI unit of energy?", "answer": "Joule" },
-      { "name": "Earth Science", "videoUrl": "", "question": "What is the outermost solid layer of Earth called?", "answer": "Crust" },
-      { "name": "Forces", "videoUrl": "", "question": "What force pulls objects toward Earth?", "answer": "Gravity" },
-      { "name": "Electricity", "videoUrl": "", "question": "What is the unit of electric current?", "answer": "Ampere" },
-      { "name": "Animals", "videoUrl": "", "question": "What do we call animals that eat only plants?", "answer": "Herbivores" },
-      { "name": "Matter", "videoUrl": "", "question": "What is the change from liquid to gas called?", "answer": "Evaporation" }
-    ],
-    "buzzerQuestions": [
-      "What is the chemical symbol for oxygen?"
+      {
+        "name": "Space",
+        "videoUrl": "",
+        "question": "Which planet is known as the Red Planet?",
+        "answer": "Mars",
+        "buzzerQuestion": "Which star is closest to Earth?",
+        "buzzerAnswer": "The Sun"
+      },
+      {
+        "name": "Chemistry",
+        "videoUrl": "https://drive.google.com/file/d/1r8mu8TKen1Uly45dlxnEB8z403FgLhUx/view?usp=drive_link",
+        "question": "What is the chemical symbol for water?",
+        "answer": "H2O",
+        "buzzerQuestion": "Which gas is released during photosynthesis?",
+        "buzzerAnswer": "Oxygen"
+      },
+      {
+        "name": "Plants",
+        "videoUrl": "",
+        "question": "Which gas do plants absorb during photosynthesis?",
+        "answer": "Carbon dioxide",
+        "buzzerQuestion": "What pigment gives most leaves their green color?",
+        "buzzerAnswer": "Chlorophyll"
+      },
+      {
+        "name": "Human Body",
+        "videoUrl": "",
+        "question": "Which organ pumps blood around the body?",
+        "answer": "Heart",
+        "buzzerQuestion": "How many chambers does a human heart have?",
+        "buzzerAnswer": "Four"
+      },
+      {
+        "name": "Energy",
+        "videoUrl": "",
+        "question": "What is the SI unit of energy?",
+        "answer": "Joule",
+        "buzzerQuestion": "What is the SI unit of power?",
+        "buzzerAnswer": "Watt"
+      },
+      {
+        "name": "Earth Science",
+        "videoUrl": "",
+        "question": "What is the outermost solid layer of Earth called?",
+        "answer": "Crust",
+        "buzzerQuestion": "What is the thickest layer of the Earth?",
+        "buzzerAnswer": "The mantle"
+      },
+      {
+        "name": "Forces",
+        "videoUrl": "",
+        "question": "What force pulls objects toward Earth?",
+        "answer": "Gravity",
+        "buzzerQuestion": "What force opposes motion between two surfaces?",
+        "buzzerAnswer": "Friction"
+      },
+      {
+        "name": "Electricity",
+        "videoUrl": "",
+        "question": "What is the unit of electric current?",
+        "answer": "Ampere",
+        "buzzerQuestion": "Which instrument measures electric current?",
+        "buzzerAnswer": "An ammeter"
+      },
+      {
+        "name": "Animals",
+        "videoUrl": "",
+        "question": "What do we call animals that eat only plants?",
+        "answer": "Herbivores",
+        "buzzerQuestion": "What is the largest living mammal?",
+        "buzzerAnswer": "The blue whale"
+      },
+      {
+        "name": "Matter",
+        "videoUrl": "",
+        "question": "What is the change from liquid to gas called?",
+        "answer": "Evaporation",
+        "buzzerQuestion": "At what temperature does pure water freeze in Celsius?",
+        "buzzerAnswer": "0 degrees Celsius"
+      }
     ]
   }
 }
