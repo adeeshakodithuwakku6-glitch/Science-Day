@@ -119,7 +119,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .landing-shell {
   position: relative;
   z-index: 1;
-  width: min(100%, 78rem);
+  width: min(calc(100% - 2rem), 62rem);
+  max-width: 62rem;
 }
 
 .landing-nav {
@@ -355,7 +356,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
-  margin: 0 0 1rem;
+  margin: 2rem 0 1rem;
 }
 .highlight-card {
   position: relative;
