@@ -114,25 +114,36 @@
             <textarea id="round-rule-practical" data-round-rule="practical" maxlength="1000" rows="3" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal"></textarea>
           </label>
         </fieldset>
-        <div class="grid gap-3 sm:grid-cols-3">
+        <div class="grid gap-3 sm:grid-cols-1">
           <label class="block text-sm font-bold">Starting score
             <input id="starting-score" type="number" min="0" max="1000000" step="1" value="0" required
               class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
           </label>
-          <label class="block text-sm font-bold">Max correct-answer points
-            <input id="score-n1" type="number" min="0" max="1000000" step="1" value="20" required
-              class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
-          </label>
-          <label class="block text-sm font-bold">n2 · wrong penalty
-            <input id="score-n2" type="number" min="0" max="1000000" step="1" value="5" required
-              class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3">
-          </label>
         </div>
+        <p class="-mt-2 text-xs text-slate-600">Set each Normal Quiz question's points, wrong-answer deduction, and time in its Quiz question card in the Admin Panel.</p>
+        <fieldset class="rounded-xl border border-slate-200 p-4">
+          <legend class="px-1 text-sm font-bold">Practical Quiz scoring and time</legend>
+          <p class="mb-3 text-xs text-slate-600">Set marks and question timers for this game. Wrong-answer values are deducted.</p>
+          <div class="grid gap-3 sm:grid-cols-4">
+            <label class="text-sm font-bold">Private correct<input id="practical-correct" type="number" min="0" max="1000000" value="10" class="mt-1 w-full rounded-lg border p-2"></label>
+            <label class="text-sm font-bold">Private wrong deduction<input id="practical-wrong" type="number" min="0" max="1000000" value="5" class="mt-1 w-full rounded-lg border p-2"></label>
+            <label class="text-sm font-bold">Private question seconds<input id="practical-time" type="number" min="5" max="120" value="20" class="mt-1 w-full rounded-lg border p-2"></label>
+            <label class="text-sm font-bold">Buzzer window seconds<input id="buzzer-time" type="number" min="5" max="120" value="20" class="mt-1 w-full rounded-lg border p-2"></label>
+            <label class="text-sm font-bold">1st buzzer correct<input id="buzzer-first-correct" type="number" min="0" max="1000000" value="10" class="mt-1 w-full rounded-lg border p-2"></label>
+            <label class="text-sm font-bold">1st buzzer wrong deduction<input id="buzzer-first-wrong" type="number" min="0" max="1000000" value="5" class="mt-1 w-full rounded-lg border p-2"></label>
+            <label class="text-sm font-bold">2nd buzzer correct<input id="buzzer-second-correct" type="number" min="0" max="1000000" value="5" class="mt-1 w-full rounded-lg border p-2"></label>
+            <label class="text-sm font-bold">2nd buzzer wrong deduction<input id="buzzer-second-wrong" type="number" min="0" max="1000000" value="3" class="mt-1 w-full rounded-lg border p-2"></label>
+          </div>
+        </fieldset>
         <fieldset>
           <label class="block text-sm font-bold">Rapid Fire common question
             <select id="rapid-question-select" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal"></select>
           </label>
           <p id="rapid-question-preview" class="mt-2 text-sm text-slate-600"></p>
+          <label class="mt-3 flex items-start gap-2 text-sm font-semibold">
+            <input id="rapid-common-adds-to-total" type="checkbox" class="mt-1 accent-purple-700">
+            <span>Add the common question's configured points for correct answers to participants' total scores</span>
+          </label>
         </fieldset>
         <fieldset>
           <div class="flex items-center justify-between gap-3">
@@ -635,11 +646,24 @@
     function renderRoundState(state) {
       currentRoundState = state;
       currentRoundStatus = state.status;
+      document.getElementById("rapid-turn-duration").value = String(state.rapidTurnSeconds ?? 30);
       currentRoundNext = state.nextRound || null;
       renderPublicTotals(state);
       document.getElementById("publish-final-ranks").classList.toggle("hidden", state.status !== "paper-results");
       document.getElementById("paper-mark-entry").classList.toggle("hidden", state.status !== "paper-marks");
       if (state.status === "lobby") return;
+      if (state.status === "intermission") {
+        clearInterval(timerInterval);
+        window.quizTimerSounds?.stop();
+        showScreen("round-screen");
+        document.getElementById("round-label").textContent = "COMPETITION INTERVAL";
+        document.getElementById("round-title").textContent = "Game paused";
+        document.getElementById("round-copy").textContent = "The game and all question timers are paused. Use Resume game in the Admin Panel when ready.";
+        document.getElementById("round-timer-wrap").classList.add("hidden");
+        document.getElementById("practical-admin").classList.add("hidden");
+        document.getElementById("next-round").classList.add("hidden");
+        return;
+      }
       if (["question", "paused", "review", "finished"].includes(state.status)) return;
       clearInterval(timerInterval);
       showScreen("round-screen");
@@ -667,7 +691,7 @@
       if (window.quizPracticalAdmin) window.quizPracticalAdmin.render({ ...state, ...practicalAdminDetails });
       const titles = {
         "rapid-rules": ["Round 1 · Rapid Fire", "Rapid Fire rules", "Everyone answers the common question together. The fastest correct answers determine the turn order. The announcer then asks each participant live questions; the administrator records answered questions, points per question, and any manual bonus."],
-        "rapid-common": ["Round 1 · Rapid Fire", "Common question", "Answer on your own player screen. This answer determines call order; Rapid Fire points are added in the individual turns."],
+        "rapid-common": ["Round 1 · Rapid Fire", "Common question", "Answer on your own player screen. This answer determines call order. Common-question points count toward totals only when enabled by the Admin."],
         "rapid-turns": ["Round 1 · Rapid Fire", "Participant order", "The administrator is stepping through the Rapid Fire ranking one participant at a time."],
         "rapid-turn": ["Round 1 · Rapid Fire", "Live turn", "The announcer is asking this participant questions. The administrator controls the turn timer and records scoring."],
         "quiz-rules": ["Round 2 · Main Quiz", "Quiz rules", "Correct answers earn the configured points minus one for each elapsed second, with a minimum of one point. Wrong answers and timeouts receive the same fixed penalty. The administrator controls the quiz leaderboard visibility."],
@@ -972,8 +996,19 @@
           .map((field) => [field.dataset.roundRule, field.value.trim()])),
         settings: {
           startingScore: Number(document.getElementById("starting-score").value),
-          n1: Number(document.getElementById("score-n1").value),
-          n2: Number(document.getElementById("score-n2").value)
+          // Keep legacy defaults in the request so an already-running older server can still create games.
+          n1: 20,
+          n2: 5,
+          rapidCommonAddsToTotal: document.getElementById("rapid-common-adds-to-total").checked,
+          rapidTurnSeconds: 30,
+          practicalCorrect: Number(document.getElementById("practical-correct").value),
+          practicalWrong: Number(document.getElementById("practical-wrong").value),
+          practicalTimeLimit: Number(document.getElementById("practical-time").value),
+          buzzerTimeLimit: Number(document.getElementById("buzzer-time").value),
+          buzzerFirstCorrect: Number(document.getElementById("buzzer-first-correct").value),
+          buzzerFirstWrong: Number(document.getElementById("buzzer-first-wrong").value),
+          buzzerSecondCorrect: Number(document.getElementById("buzzer-second-correct").value),
+          buzzerSecondWrong: Number(document.getElementById("buzzer-second-wrong").value)
         }
       };
       try {

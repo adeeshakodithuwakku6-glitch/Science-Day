@@ -36,7 +36,7 @@ const ROUND_LABELS = Object.freeze({
 });
 const DEFAULT_ROUND_RULES = Object.freeze({
   "rapid-fire": "Everyone answers the common question together. Fastest correct answers set the calling order. The announcer asks questions verbally during each timed turn; the Admin records answered questions, points per question, and any manual bonus.",
-  "main-quiz": "Each question has its own point value and time limit. Correct answers earn fewer points as time passes, with a minimum of one point. Wrong answers and timeouts apply the same fixed penalty.",
+  "main-quiz": "Each question has its own point value and time limit. Correct answers earn fewer points as time passes, with a minimum of one point. Wrong answers and timeouts use the fixed deduction chosen by the Admin.",
   practical: "The top ten Rapid Fire participants choose different themes in order. Each theme has a private question and a shared buzzer question. The Admin records Correct, Wrong, or Not Answered for each answer."
 });
 const DEFAULT_PERMISSIONS = Object.freeze({
@@ -264,7 +264,7 @@ async function loadGameHistory() {
     for (const game of gameHistory) {
       if ([
         "lobby", "rapid-rules", "rapid-common", "rapid-turns", "rapid-turn",
-        "quiz-rules", "question", "paused", "review", "practical-rules",
+        "quiz-rules", "question", "paused", "intermission", "review", "practical-rules",
         "practical-theme", "practical-video", "practical-question", "practical-question-review",
         "buzzer", "buzzer-ready", "buzzer-review", "buzzer-results", "paper-marks", "paper-results"
       ].includes(game.status)) {
@@ -434,6 +434,9 @@ function validateQuestions(value) {
     }
     if (item.points !== undefined && (!Number.isInteger(item.points) || item.points < 1 || item.points > 1000000)) {
       return `Question ${index + 1} points must be a whole number from 1 to 1,000,000.`;
+    }
+    if (item.wrongPenalty !== undefined && (!Number.isSafeInteger(item.wrongPenalty) || item.wrongPenalty < 0 || item.wrongPenalty > 1000000)) {
+      return `Question ${index + 1} wrong-answer deduction must be a whole number from 0 to 1,000,000.`;
     }
     if (item.image !== undefined && item.image !== "" &&
         (typeof item.image !== "string" || item.image.length > 2048 || !isSafeMediaUrl(item.image))) {
@@ -787,7 +790,7 @@ app.patch("/api/admin/users/:id/role", requireAdmin, async (req, res, next) => {
 app.get("/api/admin/games", requireAdmin, (req, res) => {
   const ongoingStatuses = new Set([
     "lobby", "rapid-rules", "rapid-common", "rapid-turns", "rapid-turn",
-    "quiz-rules", "question", "paused", "review", "practical-rules",
+    "quiz-rules", "question", "paused", "intermission", "review", "practical-rules",
     "practical-theme", "practical-video", "practical-question", "practical-question-review", "buzzer",
     "buzzer-ready", "buzzer-review", "buzzer-results", "paper-marks", "paper-results"
   ]);
@@ -808,6 +811,7 @@ app.get("/api/events", (_req, res) => {
     "quiz-rules": ["Quiz", "Rules"],
     question: ["Quiz", "Question in progress"],
     paused: ["Quiz", "Paused"],
+    intermission: ["Competition", "Interval"],
     review: ["Quiz", "Reviewing answers"],
     "practical-rules": ["Practical Quiz", "Rules"],
     "practical-theme": ["Practical Quiz", "Theme selection"],
@@ -905,14 +909,11 @@ app.post("/api/admin/games", requireAdmin, async (req, res, next) => {
     !Number.isSafeInteger(settings.startingScore) ||
     settings.startingScore < 0 ||
     settings.startingScore > 1000000 ||
-    !Number.isSafeInteger(settings.n1) ||
-    settings.n1 < 0 ||
-    settings.n1 > 1000000 ||
-    !Number.isSafeInteger(settings.n2) ||
-    settings.n2 < 0 ||
-    settings.n2 > 1000000
+    typeof settings.rapidCommonAddsToTotal !== "boolean" ||
+    !Number.isInteger(settings.rapidTurnSeconds) || settings.rapidTurnSeconds < 5 || settings.rapidTurnSeconds > 600 ||
+    !["practicalCorrect", "practicalWrong", "buzzerFirstCorrect", "buzzerFirstWrong", "buzzerSecondCorrect", "buzzerSecondWrong", "practicalTimeLimit", "buzzerTimeLimit"].every((key) => Number.isSafeInteger(settings[key]) && settings[key] >= (key.endsWith("TimeLimit") ? 5 : 0) && settings[key] <= (key.endsWith("TimeLimit") ? 120 : 1000000))
   ) {
-    return res.status(400).json({ error: "Starting score, n1, and n2 must be whole numbers from 0 to 1,000,000." });
+    return res.status(400).json({ error: "Scores must be whole numbers from 0 to 1,000,000. Question and round timers must be whole seconds within their allowed ranges." });
   }
   if (rooms.size >= 100) return res.status(503).json({ error: "The server is at its room limit." });
   try {
@@ -947,6 +948,10 @@ app.post("/api/admin/games/:pin/:action", requireAdmin, (req, res) => {
     error = pauseGame(room);
   } else if (action === "resume") {
     error = resumeGame(room);
+  } else if (action === "game-pause") {
+    error = pauseCompetition(room);
+  } else if (action === "game-resume") {
+    error = resumeCompetition(room);
   } else if (action === "next") {
     error = nextGameQuestion(room);
   } else if (action === "rapid-common") {
@@ -956,6 +961,15 @@ app.post("/api/admin/games/:pin/:action", requireAdmin, (req, res) => {
     error = beginRapidTurn(room, body.duration, body.playerId);
   } else if (action === "rapid-turn-finish") {
     error = finishRapidTurn(room, body.marks);
+  } else if (action === "rapid-config") {
+    if (!["rapid-turns", "rapid-turn"].includes(room.status)) {
+      error = "Rapid Fire settings can only be changed during Rapid Fire turns.";
+    } else if (!Number.isInteger(body.rapidTurnSeconds) || body.rapidTurnSeconds < 5 || body.rapidTurnSeconds > 600) {
+      error = "Rapid Fire turn time must be from 5 to 600 seconds.";
+    } else {
+      room.settings.rapidTurnSeconds = body.rapidTurnSeconds;
+      emitRoundState(room);
+    }
   } else if (action === "rapid-next") {
     error = continueAfterRapidFire(room);
   } else if (action === "quiz-start") {
@@ -967,6 +981,24 @@ app.post("/api/admin/games/:pin/:action", requireAdmin, (req, res) => {
     } else {
       room.practicalTimeLimit = body.timeLimit;
       error = beginPracticalStage(room);
+    }
+  } else if (action === "practical-config") {
+    if (!["practical-rules", "practical-theme", "practical-video", "practical-question", "practical-question-review", "buzzer-ready", "buzzer", "buzzer-review", "buzzer-results"].includes(room.status)) {
+      error = "Practical settings can only be changed during the Practical Quiz.";
+    }
+    const fields = ["practicalCorrect", "practicalWrong", "buzzerFirstCorrect", "buzzerFirstWrong", "buzzerSecondCorrect", "buzzerSecondWrong"];
+    const validPoints = fields.every((key) => Number.isSafeInteger(body[key]) && body[key] >= 0 && body[key] <= 1000000);
+    const validTimes = Number.isInteger(body.practicalTimeLimit) && body.practicalTimeLimit >= 5 && body.practicalTimeLimit <= 120 &&
+      Number.isInteger(body.buzzerTimeLimit) && body.buzzerTimeLimit >= 5 && body.buzzerTimeLimit <= 120;
+    if (!error && (!validPoints || !validTimes)) {
+      error = "Practical scores must be whole numbers from 0 to 1,000,000 and timers from 5 to 120 seconds.";
+    } else if (!error) {
+      for (const key of fields) room.settings[key] = body[key];
+      room.settings.practicalTimeLimit = body.practicalTimeLimit;
+      room.settings.buzzerTimeLimit = body.buzzerTimeLimit;
+      room.practicalTimeLimit = body.practicalTimeLimit;
+      if (["waiting", "closed", "ready"].includes(room.buzzer.status)) room.buzzer.windowSeconds = body.buzzerTimeLimit;
+      emitRoundState(room);
     }
   } else if (action === "practical-resolve") {
     error = resolvePracticalQuestion(room, body.outcome);
@@ -1219,13 +1251,26 @@ function publicLeaderboard(room) {
   return leaderboard(room, room.permissions.showTeamTotalToPlayers);
 }
 
+function emitPracticalQuestionToChooser(room, player = room.players.get(room.activePlayerId)) {
+  if (room.status !== "practical-question" || !room.selectedTheme || !player?.socketId || player.userId !== room.activePlayerId) {
+    return false;
+  }
+  io.to(player.socketId).emit("game:practical-question", {
+    deadline: room.practicalDeadline,
+    question: room.selectedTheme.question
+  });
+  return true;
+}
+
 function publicRoundState(room) {
   const state = {
     status: room.status,
+    intermissionFrom: room.intermission?.previousStatus || "",
     round: room.round,
     roundOrder: [...room.roundOrder],
     rulesText: ROUND_RULES_STATUS[room.round] === room.status ? room.roundRules[room.round] : "",
     roundNumber: getRoundNumber(room),
+    rapidTurnSeconds: room.settings.rapidTurnSeconds,
     nextRound: nextScheduledRound(room, room.round),
     permissions: { ...room.permissions },
     leaderboard: room.status === "finished"
@@ -1257,7 +1302,9 @@ function publicRoundState(room) {
       ? { totals: [...room.players.values()].map(({ nickname, score }) => ({ nickname, score })) }
       : {}),
     buzzer: {
-      question: "",
+      question: ["buzzer", "buzzer-ready", "buzzer-review"].includes(room.status)
+        ? room.buzzer.question || room.selectedTheme?.buzzerQuestion || ""
+        : "",
       status: room.buzzer.status,
       queue: room.buzzer.queue.map((id) => room.players.get(id)?.nickname || "Participant"),
       chanceIndex: room.buzzer.chanceIndex,
@@ -1277,6 +1324,15 @@ function publicRoundState(room) {
 
 function emitRoundState(room) {
   emitRoom(room, "game:round-state", publicRoundState(room));
+  if (room.status === "practical-question" && room.activePlayerId) {
+    const chooser = room.players.get(room.activePlayerId);
+    if (chooser?.socketId && room.selectedTheme) {
+      io.to(chooser.socketId).emit("game:round-state", {
+        ...publicRoundState(room),
+        privatePracticalQuestion: room.selectedTheme.question
+      });
+    }
+  }
   if (room.hostSocketId) {
     io.to(room.hostSocketId).emit("game:practical-admin-state", {
       selectedTheme: room.selectedTheme ? {
@@ -1286,7 +1342,8 @@ function emitRoundState(room) {
         buzzerQuestion: room.selectedTheme.buzzerQuestion,
         buzzerAnswer: room.selectedTheme.buzzerAnswer
       } : null,
-      practicalTimeLimit: room.practicalTimeLimit
+      practicalTimeLimit: room.practicalTimeLimit,
+      settings: { ...room.settings }
     });
   }
   saveGame(room);
@@ -1342,12 +1399,20 @@ function createGameRoom({
     practicalOrder: [],
     status: "lobby",
     players: new Map(),
-    questions: selectedQuestions.map((question) => ({ ...question, points: question.points || settings.n1, image: question.image || "", options: [...question.options] })),
+    questions: selectedQuestions.map((question) => ({ ...question, points: question.points || 20, image: question.image || "", options: [...question.options] })),
     createdAt: new Date().toISOString(),
     settings: {
       startingScore: settings.startingScore,
-      n1: settings.n1,
-      n2: settings.n2
+      rapidCommonAddsToTotal: settings.rapidCommonAddsToTotal,
+      rapidTurnSeconds: settings.rapidTurnSeconds,
+      practicalCorrect: settings.practicalCorrect,
+      practicalWrong: settings.practicalWrong,
+      buzzerFirstCorrect: settings.buzzerFirstCorrect,
+      buzzerFirstWrong: settings.buzzerFirstWrong,
+      buzzerSecondCorrect: settings.buzzerSecondCorrect,
+      buzzerSecondWrong: settings.buzzerSecondWrong,
+      practicalTimeLimit: settings.practicalTimeLimit,
+      buzzerTimeLimit: settings.buzzerTimeLimit
     },
     permissions: { ...DEFAULT_PERMISSIONS },
     round: "lobby",
@@ -1356,6 +1421,7 @@ function createGameRoom({
     questionEndsAt: 0,
     pausedAt: 0,
     pausedDurationMs: 0,
+    intermission: null,
     remainingMs: 0,
     startedAt: null,
     endedAt: null,
@@ -1371,7 +1437,7 @@ function createGameRoom({
     practicalTurns: 0,
     selectedTheme: null,
     practicalDeadline: 0,
-    practicalTimeLimit: 20,
+    practicalTimeLimit: settings.practicalTimeLimit || 20,
     rapidTurn: null,
     buzzer: { question: "", status: "waiting", queue: [], chanceIndex: -1, deadline: 0, windowSeconds: 20, results: [] },
     timer: null,
@@ -1398,7 +1464,9 @@ function ensureRoomKeys(room) {
   if (!Array.isArray(room.buzzer.results)) room.buzzer.results = [];
   if (!room.roundRules) room.roundRules = { ...DEFAULT_ROUND_RULES };
   if (!room.permissions) room.permissions = { ...DEFAULT_PERMISSIONS };
-  if (!room.settings) room.settings = { startingScore: 0, n1: 20, n2: 5 };
+  if (!room.settings) room.settings = { startingScore: 0, rapidCommonAddsToTotal: false };
+  if (!room.intermission) room.intermission = null;
+  if (typeof room.settings.rapidCommonAddsToTotal !== "boolean") room.settings.rapidCommonAddsToTotal = false;
 }
 
 function emitRoom(room, event, payload) {
@@ -1431,7 +1499,7 @@ function beginReview(room) {
   const question = room.questions[room.currentIndex];
   for (const player of room.players.values()) {
     if (player.answerIndex === null) {
-      player.lastPoints = -Math.min(player.score, room.settings.n2);
+      player.lastPoints = -Math.min(player.score, question.wrongPenalty ?? 5);
       player.score += player.lastPoints;
     }
     room.quizResults.push({
@@ -1595,6 +1663,157 @@ function resumeGame(room) {
   return null;
 }
 
+function pauseCompetition(room) {
+  if (["lobby", "paused", "intermission", "finished", "interrupted"].includes(room.status)) {
+    return "The competition cannot be paused in its current state.";
+  }
+  const status = room.status;
+  const now = Date.now();
+  let timerKind = null;
+  let deadline = 0;
+  if (status === "question") {
+    timerKind = "question";
+    deadline = room.questionEndsAt;
+  } else if (status === "rapid-common") {
+    timerKind = "rapid-common";
+    deadline = room.rapidDeadline;
+  } else if (status === "rapid-turn" && room.rapidTurn) {
+    timerKind = "rapid-turn";
+    deadline = room.rapidTurn.deadline;
+  } else if (status === "practical-question") {
+    timerKind = "practical-question";
+    deadline = room.practicalDeadline;
+  } else if (status === "buzzer") {
+    timerKind = "buzzer";
+    deadline = room.buzzer.deadline;
+  } else if (status === "buzzer-ready" && room.buzzer.status === "chance") {
+    timerKind = "buzzer-chance";
+    deadline = room.buzzer.deadline;
+  }
+  const remainingMs = timerKind ? Math.max(0, deadline - now) : 0;
+  clearRoomTimer(room);
+  room.intermission = { previousStatus: status, timerKind, remainingMs, startedAt: now };
+  room.status = "intermission";
+  clearTimeout(room.cleanupTimer);
+  room.cleanupTimer = setTimeout(() => cleanupRoom(room), ROOM_TTL_MS);
+  emitRoundState(room);
+  return null;
+}
+
+function resumeCompetition(room) {
+  if (room.status !== "intermission" || !room.intermission) return "The competition is not paused.";
+  const pause = room.intermission;
+  const now = Date.now();
+  const deadline = now + pause.remainingMs;
+  room.status = pause.previousStatus;
+  room.intermission = null;
+  clearTimeout(room.cleanupTimer);
+  room.cleanupTimer = setTimeout(() => cleanupRoom(room), ROOM_TTL_MS);
+
+  if (pause.timerKind === "question") {
+    room.questionEndsAt = deadline;
+    room.pausedDurationMs += now - pause.startedAt;
+    room.timer = setTimeout(() => {
+      emitTimerEnd(room, "main-quiz", room.questionEndsAt);
+      beginReview(room);
+    }, pause.remainingMs);
+  } else if (pause.timerKind === "rapid-common") {
+    room.rapidDeadline = deadline;
+    room.timer = setTimeout(() => {
+      emitTimerEnd(room, "rapid-fire", room.rapidDeadline);
+      finishRapidCommon(room);
+    }, pause.remainingMs);
+  } else if (pause.timerKind === "rapid-turn" && room.rapidTurn) {
+    room.rapidTurn.deadline = deadline;
+    room.timer = setTimeout(() => {
+      if (room.status !== "rapid-turn" || !room.rapidTurn) return;
+      emitTimerEnd(room, "rapid-fire", room.rapidTurn.deadline);
+      room.timer = null;
+      emitRoundState(room);
+    }, pause.remainingMs);
+  } else if (pause.timerKind === "practical-question") {
+    room.practicalDeadline = deadline;
+    room.timer = setTimeout(() => {
+      if (room.status !== "practical-question") return;
+      emitTimerEnd(room, "practical", room.practicalDeadline);
+      room.timer = null;
+      room.practicalDeadline = 0;
+      room.status = "practical-question-review";
+      emitRoundState(room);
+    }, pause.remainingMs);
+  } else if (pause.timerKind === "buzzer") {
+    room.buzzer.deadline = deadline;
+    room.timer = setTimeout(() => {
+      if (room.status !== "buzzer" || room.buzzer.status !== "open") return;
+      emitTimerEnd(room, "practical", room.buzzer.deadline);
+      room.timer = null;
+      room.buzzer.status = "closed";
+      room.buzzer.deadline = 0;
+      room.status = "buzzer-ready";
+      emitRoundState(room);
+    }, pause.remainingMs);
+  } else if (pause.timerKind === "buzzer-chance") {
+    room.buzzer.deadline = deadline;
+    room.timer = setTimeout(() => {
+      emitTimerEnd(room, "practical", room.buzzer.deadline);
+      enterBuzzerReview(room, "unanswered");
+    }, pause.remainingMs);
+  }
+
+  emitRoundState(room);
+  if (room.status === "question") {
+    const question = room.questions[room.currentIndex];
+    for (const player of room.players.values()) {
+      if (!player.connected) continue;
+      io.to(player.socketId).emit("game:question", {
+        index: room.currentIndex + 1,
+        total: room.questions.length,
+        question: question.question,
+        options: question.options,
+        image: question.image || "",
+        timeLimit: question.timeLimit,
+        points: question.points,
+        startedAt: room.questionStartedAt,
+        deadline: room.questionEndsAt,
+        answered: player.answerIndex !== null,
+        selectedIndex: player.answerIndex
+      });
+    }
+    emitHostQuestion(room);
+  } else if (room.status === "rapid-common") {
+    const question = room.rapidQuestion;
+    for (const player of room.players.values()) {
+      if (!player.connected) continue;
+      io.to(player.socketId).emit("game:rapid-common", {
+        question: question.question,
+        image: question.image || "",
+        options: question.options,
+        timeLimit: question.timeLimit,
+        deadline: room.rapidDeadline,
+        answered: player.answerIndex !== null,
+        selectedIndex: player.answerIndex
+      });
+    }
+  } else if (room.status === "buzzer" && pause.timerKind === "buzzer") {
+    emitRoom(room, "game:buzzer-start", {
+      deadline: room.buzzer.deadline,
+      reopening: room.buzzer.queue.length > 0,
+      question: room.buzzer.question || room.selectedTheme?.buzzerQuestion || ""
+    });
+  } else if (room.status === "buzzer-ready" && pause.timerKind === "buzzer-chance") {
+    const player = room.players.get(room.buzzer.queue[room.buzzer.chanceIndex]);
+    if (player?.connected) io.to(player.socketId).emit("game:buzzer-chance", {
+      deadline: room.buzzer.deadline,
+      chance: room.buzzer.chanceIndex + 1,
+      question: room.buzzer.question || room.selectedTheme?.buzzerQuestion || ""
+    });
+  } else if (room.status === "review") {
+    emitPlayerFeedback(room);
+    emitRoom(room, "game:review", reviewPayload(room));
+  }
+  return null;
+}
+
 function nextGameQuestion(room) {
   if (room.status !== "review") return "The current question must finish before continuing.";
   startQuestion(room);
@@ -1637,6 +1856,15 @@ function finishRapidCommon(room) {
         a.nickname.localeCompare(b.nickname);
     })
     .map((player, index) => ({ id: player.userId, nickname: player.nickname, rank: index + 1 }));
+  if (room.settings.rapidCommonAddsToTotal) {
+    const points = room.rapidQuestion.points || 20;
+    for (const player of room.players.values()) {
+      if (player.answerIndex === room.rapidQuestion.correctIndex) {
+        player.score += points;
+        player.roundScore = (player.roundScore || 0) + points;
+      }
+    }
+  }
   room.status = "rapid-turns";
   emitRoundState(room);
 }
@@ -1752,10 +1980,6 @@ function startPracticalQuestion(room) {
   room.status = "practical-question";
   room.practicalPendingAnswer = "";
   room.practicalDeadline = Date.now() + room.practicalTimeLimit * 1000;
-  const player = room.players.get(room.activePlayerId);
-  if (player) io.to(player.socketId).emit("game:practical-question", {
-    deadline: room.practicalDeadline
-  });
   emitRoundState(room);
   room.timer = setTimeout(() => {
     if (room.status !== "practical-question") return;
@@ -1779,7 +2003,7 @@ function resolvePracticalQuestion(room, outcome) {
   }
   clearRoomTimer(room);
   const player = room.players.get(room.activePlayerId);
-  const points = outcome === "correct" ? 10 : outcome === "wrong" ? -5 : 0;
+  const points = outcome === "correct" ? room.settings.practicalCorrect : outcome === "wrong" ? -room.settings.practicalWrong : 0;
   if (player) {
     player.score += points;
     player.roundScore = (player.roundScore || 0) + points;
@@ -1799,6 +2023,8 @@ function resolvePracticalQuestion(room, outcome) {
     ...(room.permissions.showTeamTotalToPlayers ? { points } : {})
   });
   room.practicalPendingAnswer = "";
+  // The private question result does not affect buzzer eligibility. Start the
+  // theme's common-question buzzer with a fresh queue for every participant.
   room.buzzer = {
     ...room.buzzer,
     question: room.selectedTheme.buzzerQuestion,
@@ -1807,7 +2033,7 @@ function resolvePracticalQuestion(room, outcome) {
     chanceIndex: -1,
     deadline: 0,
     pendingResponse: "",
-    windowSeconds: 20
+    windowSeconds: room.settings.buzzerTimeLimit || 20
   };
   room.status = "buzzer-ready";
   emitRoundState(room);
@@ -1816,6 +2042,9 @@ function resolvePracticalQuestion(room, outcome) {
 
 function startBuzzer(room, duration) {
   if (room.status !== "buzzer-ready" || !room.selectedTheme) return "The shared question is not ready.";
+  if (!Number.isInteger(duration) || duration < 5 || duration > 120) return "Buzzer window must be from 5 to 120 seconds.";
+  room.buzzer.question = room.selectedTheme.buzzerQuestion || room.buzzer.question || "";
+  if (!room.buzzer.question) return "The selected theme has no common buzzer question.";
   if (!["waiting", "closed", "ready"].includes(room.buzzer.status)) return "The buzzer cannot be opened in its current state.";
   if (room.buzzer.queue.length >= 2 || room.buzzer.queue.length >= room.players.size) {
     return "There are no more eligible participants to buzz.";
@@ -1839,7 +2068,8 @@ function startBuzzer(room, duration) {
   }, duration * 1000);
   emitRoom(room, "game:buzzer-start", {
     deadline: room.buzzer.deadline,
-    reopening: room.buzzer.queue.length > 0
+    reopening: room.buzzer.queue.length > 0,
+    question: room.buzzer.question || room.selectedTheme?.buzzerQuestion || ""
   });
   emitRoundState(room);
   return null;
@@ -1861,7 +2091,8 @@ function grantBuzzerChance(room, duration) {
   room.buzzer.deadline = Date.now() + duration * 1000;
   if (player) io.to(player.socketId).emit("game:buzzer-chance", {
     deadline: room.buzzer.deadline,
-    chance: next + 1
+    chance: next + 1,
+    question: room.buzzer.question || room.selectedTheme?.buzzerQuestion || ""
   });
   room.timer = setTimeout(() => {
     emitTimerEnd(room, "practical", room.buzzer.deadline);
@@ -1887,15 +2118,18 @@ function resolveBuzzerChance(room, outcome) {
   clearRoomTimer(room);
   const player = room.players.get(room.buzzer.queue[room.buzzer.chanceIndex]);
   const firstChance = room.buzzer.chanceIndex === 0;
-  const points = outcome === "correct" ? (firstChance ? 10 : 5) :
-    outcome === "wrong" ? (firstChance ? -5 : -3) : 0;
+  const points = outcome === "correct"
+    ? (firstChance ? room.settings.buzzerFirstCorrect : room.settings.buzzerSecondCorrect)
+    : outcome === "wrong"
+      ? -(firstChance ? room.settings.buzzerFirstWrong : room.settings.buzzerSecondWrong)
+      : 0;
   if (player) {
     player.score += points;
     player.roundScore = (player.roundScore || 0) + points;
   }
   room.buzzer.results.push({
     theme: room.selectedTheme.name,
-    question: room.buzzer.question,
+    question: room.buzzer.question || room.selectedTheme?.buzzerQuestion || "",
     expectedAnswer: room.selectedTheme.buzzerAnswer,
     nickname: player?.nickname || "",
     answer: room.buzzer.pendingResponse || "",
@@ -1910,7 +2144,10 @@ function resolveBuzzerChance(room, outcome) {
   });
   room.buzzer.pendingResponse = "";
   room.buzzer.pendingOutcome = "";
-  room.buzzer.queue.push(player?.userId || `unanswered-${room.buzzer.chanceIndex}-${room.buzzer.results.length}`);
+  // The queue already contains this participant from their original buzzer press.
+  // Keep one entry per player so a wrong first answer can reopen the buzzer for
+  // someone else, while still preventing that same participant from buzzing again
+  // on this theme. continuePracticalTheme clears the queue for the next theme.
   if (firstChance && outcome !== "correct") {
     room.buzzer.status = "ready";
     room.status = "buzzer-ready";
@@ -2112,7 +2349,8 @@ io.on("connection", (socket) => {
         buzzerQuestion: room.selectedTheme.buzzerQuestion,
         buzzerAnswer: room.selectedTheme.buzzerAnswer
       } : null,
-      practicalTimeLimit: room.practicalTimeLimit
+      practicalTimeLimit: room.practicalTimeLimit,
+      settings: { ...room.settings }
     });
     if (room.status === "question" || room.status === "paused") emitHostQuestion(room);
     if (room.status === "paused") socket.emit("game:paused", { remainingMs: room.remainingMs });
@@ -2197,7 +2435,8 @@ io.on("connection", (socket) => {
     room.players.set(user.id, player);
     socket.join(pin);
     ack({ pin, playerId: player.userId, nickname: player.nickname });
-    if (room.status === "lobby") emitRoom(room, "game:lobby", hostRoomState(room));
+    if (room.status === "intermission") socket.emit("game:round-state", publicRoundState(room));
+    else if (room.status === "lobby") emitRoom(room, "game:lobby", hostRoomState(room));
     else if ((room.status === "question" || room.status === "paused") && player.answerIndex === null) {
       const question = room.questions[room.currentIndex];
       socket.emit("game:question", {
@@ -2219,15 +2458,17 @@ io.on("connection", (socket) => {
         timeLimit: question.timeLimit, deadline: room.rapidDeadline
       });
     } else if (room.status === "practical-question" && player.userId === room.activePlayerId) {
-      socket.emit("game:practical-question", {
-        deadline: room.practicalDeadline
-      });
-    } else if (room.status === "buzzer-ready" && room.buzzer.status === "chance" &&
-        room.buzzer.queue[room.buzzer.chanceIndex] === player.userId) {
-      socket.emit("game:buzzer-chance", {
-        deadline: room.buzzer.deadline,
-        chance: room.buzzer.chanceIndex + 1
-      });
+      emitPracticalQuestionToChooser(room, player);
+    } else if (["buzzer", "buzzer-ready", "buzzer-review"].includes(room.status)) {
+      socket.emit("game:round-state", publicRoundState(room));
+      if (room.status === "buzzer-ready" && room.buzzer.status === "chance" &&
+          room.buzzer.queue[room.buzzer.chanceIndex] === player.userId) {
+        socket.emit("game:buzzer-chance", {
+          deadline: room.buzzer.deadline,
+          chance: room.buzzer.chanceIndex + 1,
+          question: room.buzzer.question || room.selectedTheme?.buzzerQuestion || ""
+        });
+      }
     } else if (room.status === "review") {
       socket.emit("game:feedback", {
         answered: player.answerIndex !== null,
@@ -2298,7 +2539,7 @@ io.on("connection", (socket) => {
       player.lastPoints = Math.max(1, question.points - elapsedSeconds + 1);
       player.score += player.lastPoints;
     } else {
-      player.lastPoints = -Math.min(player.score, room.settings.n2);
+      player.lastPoints = -Math.min(player.score, question.wrongPenalty ?? 5);
       player.score += player.lastPoints;
     }
     ack({ accepted: true });

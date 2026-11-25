@@ -154,18 +154,22 @@
     let body = null;
     let points = null;
     if (["practical-question", "practical-question-review"].includes(current.status)) {
-      body = { action: "practical-resolve", correct: "Correct (+10)", wrong: "Wrong (−5)", unanswered: "Not Answered (0)" };
-      points = "The chooser's question · correct +10, wrong −5, not answered 0";
+      const correct = current.settings?.practicalCorrect ?? 10;
+      const wrong = current.settings?.practicalWrong ?? 5;
+      body = { action: "practical-resolve", correct: `Correct (+${correct})`, wrong: `Wrong (−${wrong})`, unanswered: "Not Answered (0)" };
+      points = `The chooser's question · correct +${correct}, wrong −${wrong}, not answered 0`;
     } else if (current.status === "buzzer-review" ||
       (current.status === "buzzer-ready" && current.buzzer?.status === "chance")) {
       const first = current.buzzer.chanceIndex === 0;
+      const correct = current.settings?.[first ? "buzzerFirstCorrect" : "buzzerSecondCorrect"] ?? (first ? 10 : 5);
+      const wrong = current.settings?.[first ? "buzzerFirstWrong" : "buzzerSecondWrong"] ?? (first ? 5 : 3);
       body = {
         action: "buzzer-resolve",
-        correct: `Correct (+${first ? 10 : 5})`,
-        wrong: `Wrong (−${first ? 5 : 3})`,
+        correct: `Correct (+${correct})`,
+        wrong: `Wrong (−${wrong})`,
         unanswered: "Not Answered (0)"
       };
-      points = `Buzzer chance ${current.buzzer.chanceIndex + 1} · correct +${first ? 10 : 5}, wrong −${first ? 5 : 3}, not answered 0`;
+      points = `Buzzer chance ${current.buzzer.chanceIndex + 1} · correct +${correct}, wrong −${wrong}, not answered 0`;
     } else if (current.status === "buzzer-ready" && current.buzzer?.queue?.length === 0 && current.buzzer.status === "closed") {
       body = { action: "buzzer-finish", unanswered: "Finish: nobody buzzed" };
       points = "Nobody pressed the buzzer within the window";

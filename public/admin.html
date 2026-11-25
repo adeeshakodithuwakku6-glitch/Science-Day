@@ -118,17 +118,22 @@
         <input data-field="image" maxlength="2048" placeholder="https://... or /images/question.png" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal">
       </label>
       <div class="options mt-4 grid gap-3 sm:grid-cols-2"></div>
-      <label class="mt-4 inline-flex items-center gap-2 text-sm font-bold">Points for a correct answer
-        <input data-field="points" type="number" min="1" max="1000000" step="1" value="20" class="w-28 rounded-lg border border-slate-300 px-3 py-2">
-      </label>
-      <label class="mt-4 inline-flex items-center gap-2 text-sm font-bold">Time limit
-        <select data-field="timeLimit" class="rounded-lg border border-slate-300 px-3 py-2">
-          <option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option>
-          <option value="20">20 seconds</option><option value="25">25 seconds</option><option value="30">30 seconds</option>
-          <option value="45">45 seconds</option><option value="60">60 seconds</option><option value="90">90 seconds</option>
-          <option value="120">120 seconds</option>
-        </select>
-      </label>
+      <div class="mt-4 flex flex-wrap items-end gap-3">
+        <label class="inline-flex items-center gap-2 text-sm font-bold">Points for a correct answer
+          <input data-field="points" type="number" min="1" max="1000000" step="1" value="20" class="w-28 rounded-lg border border-slate-300 px-3 py-2">
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm font-bold">Wrong-answer deduction
+          <input data-field="wrongPenalty" type="number" min="0" max="1000000" step="1" value="5" class="w-28 rounded-lg border border-slate-300 px-3 py-2">
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm font-bold">Time limit
+          <select data-field="timeLimit" class="rounded-lg border border-slate-300 px-3 py-2">
+            <option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option>
+            <option value="20">20 seconds</option><option value="25">25 seconds</option><option value="30">30 seconds</option>
+            <option value="45">45 seconds</option><option value="60">60 seconds</option><option value="90">90 seconds</option>
+            <option value="120">120 seconds</option>
+          </select>
+        </label>
+      </div>
     </article>
   </template>
 
@@ -246,7 +251,7 @@
       return `question-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
     function newQuestion() {
-      return { id: createQuestionId(), question: "", options: ["", "", "", ""], correctIndex: 0, timeLimit: 20, points: 20, image: "" };
+      return { id: createQuestionId(), question: "", options: ["", "", "", ""], correctIndex: 0, timeLimit: 20, points: 20, wrongPenalty: 5, image: "" };
     }
     function readForm() {
       questions = [...list.querySelectorAll(".question-card")].map((card) => ({
@@ -256,6 +261,7 @@
         correctIndex: Number(card.querySelector('input[type="radio"]:checked')?.value),
         timeLimit: Number(card.querySelector('[data-field="timeLimit"]').value),
         points: Number(card.querySelector('[data-field="points"]').value),
+        wrongPenalty: Number(card.querySelector('[data-field="wrongPenalty"]').value),
         image: card.querySelector('[data-field="image"]').value.trim()
       }));
     }
@@ -270,6 +276,7 @@
         prompt.placeholder = "Enter the question";
         card.querySelector('[data-field="timeLimit"]').value = String(question.timeLimit);
         card.querySelector('[data-field="points"]').value = String(question.points || 20);
+        card.querySelector('[data-field="wrongPenalty"]').value = String(question.wrongPenalty ?? 5);
         const imageInput = card.querySelector('[data-field="image"]');
         imageInput.value = question.image || "";
         imageInput.parentElement.after(addMediaPicker(imageInput, "image/jpeg,image/png,image/gif,image/webp", "an image"));
@@ -380,7 +387,19 @@
         time.dataset.bankField = "timeLimit";
         time.className = "ml-1 w-24 rounded border border-slate-300 px-2 py-1";
         timeLabel.append(time, document.createTextNode(" seconds"));
-        settings.append(correctLabel, timeLabel);
+        const pointsLabel = document.createElement("label");
+        pointsLabel.className = "text-sm font-bold";
+        pointsLabel.append(document.createTextNode("Points for correct answer "));
+        const points = document.createElement("input");
+        points.type = "number";
+        points.min = "1";
+        points.max = "1000000";
+        points.step = "1";
+        points.value = String(question.points || 20);
+        points.dataset.bankField = "points";
+        points.className = "ml-1 w-24 rounded border border-slate-300 px-2 py-1";
+        pointsLabel.append(points);
+        settings.append(correctLabel, timeLabel, pointsLabel);
         const imageLabel = bankField("Optional image URL or public file path (e.g. /uploads/images/diagram.png)", question.image, "image", 2048, false);
         const imagePicker = addMediaPicker(imageLabel.querySelector('[data-bank-field="image"]'), "image/jpeg,image/png,image/gif,image/webp", "an image");
         card.append(settings, imageLabel, imagePicker);
@@ -412,16 +431,13 @@
     }
 
     function readRoundBankForm() {
-      const existingCommonQuestions = new Map(
-        roundQuestionBanks.rapidFire.commonQuestions.map((question) => [question.id, question])
-      );
       roundQuestionBanks.rapidFire.commonQuestions = [...document.querySelectorAll(".rapid-common-card")].map((card) => ({
         id: card.dataset.id,
         question: card.querySelector('[data-bank-field="question"]').value.trim(),
         options: [0, 1, 2, 3].map((index) => card.querySelector(`[data-bank-field="option-${index}"]`).value.trim()),
         correctIndex: Number(card.querySelector('[data-bank-field="correctIndex"]').value),
         timeLimit: Number(card.querySelector('[data-bank-field="timeLimit"]').value),
-        points: existingCommonQuestions.get(card.dataset.id)?.points || 20,
+        points: Number(card.querySelector('[data-bank-field="points"]').value),
         image: card.querySelector('[data-bank-field="image"]').value.trim()
       }));
       roundQuestionBanks.rapidFire.announcerQuestions =
@@ -615,26 +631,32 @@
           : "Continue to Final Paper Marks";
         const availableActions = {
           lobby: ["start", "Start"],
-          question: ["pause", "Pause"],
           paused: ["resume", "Resume"],
+          intermission: ["game-resume", "Resume game"],
           review: ["next", game.currentQuestion >= game.questionCount ? lastQuestionAction : "Next question"]
         };
-        const action = availableActions[game.status];
-        if (action) {
+        const addGameAction = (action) => {
           const button = document.createElement("button");
           button.type = "button";
           button.className = "rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800";
           button.textContent = action[1];
           button.addEventListener("click", async () => {
+            button.disabled = true;
             try {
               await api(`/api/admin/games/${encodeURIComponent(game.pin)}/${action[0]}`, { method: "POST" });
               await loadGames();
               showNotice("Game updated.");
             } catch (error) {
               showNotice(error.message, true);
+              button.disabled = false;
             }
           });
           actions.append(button);
+        };
+        const action = availableActions[game.status];
+        if (action) addGameAction(action);
+        if (game.live && !["lobby", "paused", "intermission", "finished", "interrupted"].includes(game.status)) {
+          addGameAction(["game-pause", "Pause game"]);
         }
         heading.append(title, actions);
         card.append(heading);
@@ -757,9 +779,57 @@
           });
           controls.append(button);
         }
+        if (["practical-rules", "practical-theme", "practical-video", "practical-question", "practical-question-review", "buzzer-ready", "buzzer", "buzzer-review", "buzzer-results"].includes(game.status)) {
+          const values = game.settings || {};
+          const section = document.createElement("div");
+          section.className = "w-full rounded-lg border border-purple-200 bg-purple-50 p-3";
+          const heading = document.createElement("p");
+          heading.className = "mb-2 text-sm font-black text-purple-900";
+          heading.textContent = "Practical Quiz points and time";
+          section.append(heading);
+          const hint = document.createElement("p");
+          hint.className = "text-xs text-slate-600";
+          hint.textContent = "Save changes here. New timer values apply to upcoming questions and buzzer windows; scoring values apply immediately.";
+          section.append(hint);
+          controls.append(section);
+          const practicalCorrect = addInput("Private correct points", values.practicalCorrect ?? 10);
+          const practicalWrong = addInput("Private wrong deduction", values.practicalWrong ?? 5);
+          const practicalSeconds = addInput("Private question seconds", game.practicalTimeLimit || values.practicalTimeLimit || 20);
+          const firstCorrect = addInput("1st buzzer correct", values.buzzerFirstCorrect ?? 10);
+          const firstWrong = addInput("1st buzzer wrong deduction", values.buzzerFirstWrong ?? 5);
+          const secondCorrect = addInput("2nd buzzer correct", values.buzzerSecondCorrect ?? 5);
+          const secondWrong = addInput("2nd buzzer wrong deduction", values.buzzerSecondWrong ?? 3);
+          const buzzerSeconds = addInput("Buzzer window seconds", game.buzzer?.windowSeconds || values.buzzerTimeLimit || 20);
+          [practicalSeconds, buzzerSeconds].forEach((input) => { input.min = "5"; input.max = "120"; });
+          addAction("practical-config", "Save Practical settings", {}, [
+            { key: "practicalCorrect", input: practicalCorrect }, { key: "practicalWrong", input: practicalWrong },
+            { key: "practicalTimeLimit", input: practicalSeconds }, { key: "buzzerFirstCorrect", input: firstCorrect },
+            { key: "buzzerFirstWrong", input: firstWrong }, { key: "buzzerSecondCorrect", input: secondCorrect },
+            { key: "buzzerSecondWrong", input: secondWrong }, { key: "buzzerTimeLimit", input: buzzerSeconds }
+          ]);
+        }
         if (game.status === "rapid-rules") addAction("rapid-common", "Continue to common question");
+        if (["rapid-turns", "rapid-turn"].includes(game.status)) {
+          const settings = game.settings || {};
+          const section = document.createElement("div");
+          section.className = "w-full rounded-lg border border-emerald-200 bg-emerald-50 p-3";
+          const heading = document.createElement("p");
+          heading.className = "mb-2 text-sm font-black text-emerald-900";
+          heading.textContent = "Rapid Fire time";
+          const hint = document.createElement("p");
+          hint.className = "mb-2 text-xs text-slate-600";
+          hint.textContent = "Set the default turn time. You can also change the time for each participant before starting.";
+          section.append(heading, hint);
+          controls.append(section);
+          const turnSeconds = addInput("Default turn seconds", settings.rapidTurnSeconds ?? 30);
+          turnSeconds.min = "5";
+          turnSeconds.max = "600";
+          addAction("rapid-config", "Save Rapid Fire time", {}, [
+            { key: "rapidTurnSeconds", input: turnSeconds }
+          ]);
+        }
         if (game.status === "rapid-turns") {
-          const duration = addInput("Turn seconds", 30);
+          const duration = addInput("Turn seconds", game.settings?.rapidTurnSeconds ?? 30);
           duration.min = "5";
           duration.max = "600";
           const nextIndex = game.rapidResults?.length || 0;
@@ -833,8 +903,8 @@
             `Expected answer: ${game.selectedTheme?.answer || "Not set"}`
           ].join(" · ");
           controls.append(response);
-          addAction("practical-resolve", "Correct (+10)", { outcome: "correct" });
-          addAction("practical-resolve", "Wrong (−5)", { outcome: "wrong" });
+          addAction("practical-resolve", `Correct (+${game.settings?.practicalCorrect ?? 10})`, { outcome: "correct" });
+          addAction("practical-resolve", `Wrong (−${game.settings?.practicalWrong ?? 5})`, { outcome: "wrong" });
           addAction("practical-resolve", "Not Answered (0)", { outcome: "unanswered" });
         }
         if (game.status === "buzzer") addAction("buzzer-close", "Close buzzer");
@@ -864,8 +934,8 @@
           ].join(" · ");
           controls.append(response);
           const firstChance = game.buzzer.chanceIndex === 0;
-          addAction("buzzer-resolve", `Correct (+${firstChance ? 10 : 5})`, { outcome: "correct" });
-          addAction("buzzer-resolve", `Wrong (−${firstChance ? 5 : 3})`, { outcome: "wrong" });
+          addAction("buzzer-resolve", `Correct (+${game.settings?.[firstChance ? "buzzerFirstCorrect" : "buzzerSecondCorrect"] ?? (firstChance ? 10 : 5)})`, { outcome: "correct" });
+          addAction("buzzer-resolve", `Wrong (−${game.settings?.[firstChance ? "buzzerFirstWrong" : "buzzerSecondWrong"] ?? (firstChance ? 5 : 3)})`, { outcome: "wrong" });
           addAction("buzzer-resolve", "Not Answered (0)", { outcome: "unanswered" });
         }
         if (game.status === "buzzer-ready" && game.buzzer.queue.length === 0 &&

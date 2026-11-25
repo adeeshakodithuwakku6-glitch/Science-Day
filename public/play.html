@@ -13,6 +13,13 @@
 </head>
 <body class="quiz-stage min-h-screen text-white">
   <main id="player-app" class="stage-main player-app mx-auto hidden min-h-screen w-full max-w-3xl flex-col justify-center px-5 py-8 sm:px-7">
+    <div id="game-intermission-overlay" class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/85 p-6 text-center text-white backdrop-blur-sm">
+      <div class="max-w-xl rounded-3xl border border-white/20 bg-white/10 p-8 shadow-2xl sm:p-12">
+        <p class="text-sm font-black uppercase tracking-[.2em] text-violet-200">Science Day Quiz</p>
+        <h2 class="mt-4 text-4xl font-black sm:text-5xl">තරගය තාවකාලිකව නවතා ඇත</h2>
+        <p class="mt-4 text-lg text-white/85">Admin නැවත ආරම්භ කරන තුරු විවේක ගන්න. ඔබගේ ලකුණු සහ ප්‍රගතිය සුරක්ෂිතයි.</p>
+      </div>
+    </div>
     <header class="player-header mb-8 flex items-center justify-between gap-4">
       <a href="/" class="player-brand">
         <span class="brand-symbol" aria-hidden="true">⚛</span>
@@ -80,6 +87,10 @@
       <p id="round-label" class="player-eyebrow"></p>
       <h2 id="round-title" class="player-title mt-2"></h2>
       <p id="round-copy" class="player-subtitle mx-auto mt-4 max-w-2xl"></p>
+      <div id="buzzer-common-question" class="practical-question-panel mx-auto mt-5 hidden max-w-3xl text-left">
+        <p class="practical-question-label">Practical Quiz · Common buzzer question</p>
+        <p id="buzzer-common-question-text" class="practical-question-text" role="status" aria-live="polite"></p>
+      </div>
       <p id="round-active" class="mt-5 text-lg font-black text-purple-900"></p>
       <p id="round-chooser" class="mt-2 hidden font-bold text-emerald-800"></p>
       <p id="round-spot" class="mt-1 hidden font-bold text-slate-700"></p>
@@ -96,15 +107,26 @@
     </section>
 
     <section id="practical-question-screen" class="player-card player-screen hidden rounded-3xl p-7 text-slate-900 sm:p-10">
-      <p class="player-eyebrow">Practical Quiz</p>
-      <h2 class="player-title mt-3">Listen to the announcer</h2>
-      <p class="mt-5 text-sm font-bold uppercase tracking-widest text-purple-700">Time left</p>
-      <p id="practical-timer" class="player-practical-countdown mt-1"></p>
+      <p class="player-eyebrow">Practical Quiz · Your turn</p>
+      <h2 class="player-title mt-3">Your private question</h2>
+      <div class="practical-question-panel mt-6">
+        <p class="practical-question-label">Read carefully · answer aloud to the host</p>
+        <p id="practical-question-text" class="practical-question-text" role="status" aria-live="polite"></p>
+      </div>
+      <div class="practical-question-clock mt-5">
+        <span>Time left</span>
+        <p id="practical-timer" class="player-practical-countdown mt-2"></p>
+      </div>
+      <p class="mt-4 text-sm font-semibold text-slate-600">Say your answer aloud to the host before time runs out.</p>
     </section>
 
     <section id="buzzer-chance-screen" class="player-card player-screen hidden rounded-3xl p-7 text-slate-900 sm:p-10">
       <p class="player-eyebrow">Your buzzer chance</p>
       <p id="buzzer-chance-number" class="mt-1 font-bold text-purple-800"></p>
+      <div class="practical-question-panel mt-5 text-left">
+        <p class="practical-question-label">Common buzzer question</p>
+        <p id="buzzer-chance-question" class="practical-question-text" role="status" aria-live="polite"></p>
+      </div>
       <p class="mt-5 text-sm font-bold uppercase tracking-widest text-purple-700">Time left</p>
       <p id="buzzer-chance-timer" class="player-practical-countdown mt-1"></p>
     </section>
@@ -219,6 +241,21 @@
     function renderRoundState(state) {
       renderPublicTotals(state);
       permissions = state.permissions || permissions;
+      const intermissionOverlay = document.getElementById("game-intermission-overlay");
+      if (state.status === "intermission") {
+        clearInterval(timerInterval);
+        window.quizTimerSounds?.stop();
+        intermissionOverlay.classList.remove("hidden");
+        intermissionOverlay.classList.add("flex");
+        return;
+      }
+      intermissionOverlay.classList.add("hidden");
+      intermissionOverlay.classList.remove("flex");
+      if (state.status === "practical-question" && state.activePlayerId === playerId &&
+          typeof state.privatePracticalQuestion === "string") {
+        showPracticalQuestion({ deadline: state.practicalDeadline, question: state.privatePracticalQuestion });
+        return;
+      }
       if (state.status === "finished") {
         renderFinalLeaderboard(state.leaderboard || [], true);
         return;
@@ -257,6 +294,10 @@
         .replace(/^(?:Round|Event) \d+/, `Round ${state.roundNumber || 1}`);
       document.getElementById("round-title").textContent = detail[1];
       document.getElementById("round-copy").textContent = state.rulesText || detail[2];
+      const buzzerQuestionWrap = document.getElementById("buzzer-common-question");
+      const hasCommonBuzzerQuestion = ["buzzer", "buzzer-ready", "buzzer-review"].includes(state.status) && Boolean(state.buzzer?.question);
+      buzzerQuestionWrap.classList.toggle("hidden", !hasCommonBuzzerQuestion);
+      document.getElementById("buzzer-common-question-text").textContent = hasCommonBuzzerQuestion ? state.buzzer.question : "";
       if (state.status === "buzzer-results") {
         const nextParticipant = state.practicalOrder?.[state.practicalIndex + 1];
         document.getElementById("round-copy").textContent = nextParticipant
@@ -358,8 +399,12 @@
       }
       const buzzerButton = document.getElementById("player-buzzer");
       buzzerButton.classList.toggle("hidden", state.status !== "buzzer");
-      buzzerButton.disabled = state.status !== "buzzer" || (state.buzzer?.queue?.length || 0) >= 2;
-      document.getElementById("buzzer-status").textContent = (state.buzzer?.queue || [])
+      const buzzerQueue = state.buzzer?.queue || [];
+      const hasBuzzedThisTheme = buzzerQueue.includes(currentNickname);
+      buzzerButton.disabled = state.status !== "buzzer" || buzzerQueue.length >= 2 || hasBuzzedThisTheme;
+      document.getElementById("buzzer-status").textContent = hasBuzzedThisTheme
+        ? "You have already used your buzzer press for this theme."
+        : buzzerQueue
         .map((name, index) => `${index + 1}${index === 0 ? "st" : "nd"}: ${name}`).join(" · ");
       showScreen("round-screen");
     }
@@ -467,7 +512,7 @@
     });
     function renderQuestion(question) {
       clearInterval(timerInterval);
-      hasAnswered = false;
+      hasAnswered = Boolean(question.answered);
       document.getElementById("paused-banner").classList.add("hidden");
       document.getElementById("question-progress").textContent = typeof question.index === "number"
         ? `Question ${question.index} of ${question.total}`
@@ -486,6 +531,7 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = `answer flex flex-col items-center justify-center rounded-2xl px-3 py-4 text-center text-white shadow-lg ${colors[index]}`;
+        button.disabled = hasAnswered;
         const shape = document.createElement("span");
         shape.className = "text-3xl";
         shape.textContent = shapes[index];
@@ -621,8 +667,17 @@
     socket.on("game:timer-end", ({ round, deadline }) => {
       playTimerEndSound(round, deadline);
     });
-    socket.on("game:practical-question", ({ deadline }) => {
+    socket.on("game:buzzer-start", ({ question }) => {
+      if (!question) return;
+      document.getElementById("buzzer-common-question-text").textContent = question;
+      document.getElementById("buzzer-common-question").classList.remove("hidden");
+      if (document.getElementById("buzzer-chance-screen").classList.contains("hidden")) {
+        showScreen("round-screen");
+      }
+    });
+    function showPracticalQuestion({ deadline, question }) {
       clearInterval(timerInterval);
+      document.getElementById("practical-question-text").textContent = question || "Listen to the announcer.";
       showScreen("practical-question-screen");
       const updateTimer = () => {
         const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
@@ -633,7 +688,8 @@
       };
       updateTimer();
       timerInterval = setInterval(updateTimer, 200);
-    });
+    }
+    socket.on("game:practical-question", showPracticalQuestion);
     socket.on("game:practical-result", ({ outcome, points }) => {
       window.quizTimerSounds?.stop();
       clearInterval(timerInterval);
@@ -644,9 +700,10 @@
         : `${points > 0 ? "+" : ""}${points} points.`;
       showScreen("round-screen");
     });
-    socket.on("game:buzzer-chance", ({ deadline, chance }) => {
+    socket.on("game:buzzer-chance", ({ deadline, chance, question }) => {
       clearInterval(timerInterval);
       document.getElementById("buzzer-chance-number").textContent = `Chance ${chance} of 2`;
+      document.getElementById("buzzer-chance-question").textContent = question || "";
       showScreen("buzzer-chance-screen");
       const updateTimer = () => {
         const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
